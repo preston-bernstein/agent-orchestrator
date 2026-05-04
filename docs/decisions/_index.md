@@ -8,7 +8,7 @@ tags: [decision, adr, index]
 
 | ADR  | Title | Status   | Date       | Supersedes | Superseded by | Notes |
 | ---- | ----- | -------- | ---------- | ---------- | ------------- | ----- |
-| _none yet — populated as repo lands ADRs per phase_ | | | | | | |
+| 0001 | Phase 2 trigger evaluation — PoC mock pass + real-TF graduation gate | accepted | 2026-05-04 | — | — | Phase 9 closeout; O7 bars met on mock surface, real-TF graduation pending |
 
 ## Conventions
 
