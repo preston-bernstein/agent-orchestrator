@@ -16,7 +16,8 @@
     "quality": "pnpm run typecheck && pnpm run lint && pnpm run test:run",
     "orchestrate": "tsx src/cli/orchestrate.ts",
     "audit:verify": "tsx src/audit/verify.ts",
-    "scorecard": "tsx src/scorecard/index.ts"
+    "scorecard": "tsx src/scorecard/index.ts",
+    "mutation": "stryker run"
   },
   "dependencies": {
     "@mastra/core": "^1.31.0",
@@ -26,6 +27,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^10.3.0",
