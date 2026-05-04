@@ -22,9 +22,9 @@ Each task = one PR (or sub-PR per Playbook B1). Agent reads top-down, picks firs
 - [~] 4. Init `package.json` + `tsconfig.json` + `pnpm-lock.yaml` w/ pinned `@mastra/*` deps. Tests: smoke (`pnpm install` exits 0). _Phase 0 closes by adding `@mastra/core`, `p-limit`, `@toon-format/toon`._
 - [~] 5. Add `.env.example` + `src/config/env.ts` w/ Zod-validated `BootConfig`. Tests: missing `TF_BASE_URL` fails boot; full env passes. _Partial: env loader landed; TF_BASE_URL refusal lands Phase 3._
 - [ ] 6. Add `src/tf/client.ts` w/ `fetch`-based wrapper + capability probe. Tests: hostname check, mocked OK + 5xx + auth-error paths. **Phase 3.**
-- [ ] 7. Add `src/audit/jsonl.ts` w/ chained writer (canonical JSON + SHA-256 prev_hash). Tests: chain verify, key-order independence, secret-redaction guard. **Phase 2.**
-- [ ] 8. Add `src/audit/verify.ts` CLI: `pnpm run audit:verify <path>` returns ok / break-at-record-N. **Phase 2.**
-- [ ] 9. Add `src/runs/state.ts` w/ atomic tmp→rename writer (edge 44). **Phase 2.**
+- [x] 7. Add `src/audit/jsonl.ts` w/ chained writer (canonical JSON + SHA-256 prev_hash). Tests: chain verify, key-order independence, secret-redaction guard. **Phase 2.**
+- [x] 8. Add `src/audit/verify.ts` CLI: `pnpm run audit:verify <path>` returns ok / break-at-record-N. **Phase 2.**
+- [x] 9. Add `src/runs/state.ts` w/ atomic tmp→rename writer (edge 44). **Phase 2.**
 - [ ] 10. Add `src/cli/orchestrate.ts` (Mastra workflow CLI entry). _Stub landed in commit 1507957 — Mastra wiring + TF probe lands Phase 3+._
 - [ ] 11. Add `specs/no-op.md` so `pnpm run orchestrate -- --spec specs/no-op.md` has something to read. **Phase 4 (planner).**
 - [~] 12. Add `README.md` boot section. _Stub landed; full PLAYBOOK_EXPECTS yaml block lands Phase 0 close._
@@ -41,7 +41,7 @@ Vault plan + HITL between chunks: `Orchestration PoC/Orchestrator Self-Fidelity 
 
 - [x] 21. Add `src/config/expectations.ts` — parse `docs/playbook-expectations.md` (YAML + body); `loadExpectations()` w/ Zod. Tests: fixture file → ok; missing → documented warn path. _Landed commit 1507957._
 - [x] 22. Wire `loadExpectations()` into boot (`src/cli/orchestrate.ts`) before TF probe. _Landed commit 1507957 (orchestrate stub calls loader)._
-- [ ] 23. Extend `RunContext` (Zod) w/ `expectations_snapshot`. Persist on run init. **Phase 2.**
+- [x] 23. Extend `RunContext` (Zod) w/ `expectations_snapshot`. Persist on run init. **Phase 2.** _Schema + `initRunContext()` factory landed in `src/runs/orchestratorContext.ts` per vault `<stack>Context.ts` extend rule; state.json roundtrip test green. CLI `src/cli/orchestrate.ts` will call `initRunContext()` + `atomicWriteJson` once a run loop exists in Phase 3+._
 - [~] 24. Env `STRICT_EXPECTATIONS` + optional `EXPECTED_VAULT_SHA` — when set, boot **throws** if snapshot ≠ env. _`assertVaultShaAllowed` landed commit 1507957; throw-on-mismatch test landed; orchestrator-state wiring lands Phase 2._
 
 ### SF2 — O5 deterministic lane
