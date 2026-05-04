@@ -43,7 +43,7 @@ function parseSimpleYaml(yaml: string): Record<string, unknown> {
       continue;
     }
     if (inPlaybook) {
-      const ind = /^  ([a-z0-9_]+):\s*(.*)$/i.exec(line);
+      const ind = /^ {2}([a-z0-9_]+):\s*(.*)$/i.exec(line);
       if (ind?.[1]) {
         playbook[ind[1]] = (ind[2] ?? "").replace(/^["']|["']$/g, "");
       }

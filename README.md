@@ -24,6 +24,11 @@ pnpm run orchestrate
 | `pnpm run orchestrate` | Boot + load expectations + JSON status |
 | `pnpm run test:run` | Vitest |
 | `pnpm run typecheck` | `tsc --noEmit` |
+| `pnpm run lint` | ESLint flat config, `--max-warnings=0` |
+| `pnpm run quality` | typecheck + lint + tests (Phase 10 gate) |
+| `pnpm run coverage` | Vitest w/ v8 coverage; `src/audit/**` ≥ 90%, rest ≥ 70% |
+| `pnpm run audit:verify <path>` | Verify audit JSONL hash chain |
+| `pnpm run scorecard` | Aggregate runs/<id>/audit.jsonl into PoC scorecard |
 
 ## PLAYBOOK_EXPECTS (A3 pin-the-brain)
 

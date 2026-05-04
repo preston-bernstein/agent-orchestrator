@@ -38,8 +38,6 @@ export interface PlannerDryRunResult {
   reason: string;
 }
 
-const CHECKBOX_RE = /^\s*[-*]\s*\[(\s|x|X)\]\s+/m;
-
 /**
  * Parse GitHub-style task checkboxes from a markdown body. Returns lines
  * that *look* like task lines, with their done-state. Non-task lines are

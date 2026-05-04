@@ -66,10 +66,6 @@ export const SECRET_PATTERNS: readonly RegExp[] = [
 
 const REDACTED = "[REDACTED]";
 
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** Strip literal secret strings + regex-matched shapes from `s`. */
 export function redactString(s: string, literals: readonly string[] = []): string {
   let out = s;

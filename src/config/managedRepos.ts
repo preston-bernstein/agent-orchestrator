@@ -177,7 +177,7 @@ export function parseMetaYaml(yaml: string): Record<string, unknown> {
         continue;
       }
     }
-    const indented = /^  ([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
+    const indented = /^ {2}([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
     if (indented && pendingKey) {
       if (pendingKind === "unknown") pendingKind = "object";
       if (pendingKind === "object") {

@@ -45,7 +45,7 @@ describe("atomicWriteJson", () => {
     const target = path.join(tmp, "state.json");
     atomicWriteJson({ path: target, data: { a: 1, b: { c: 2 } } });
     const raw = await readFile(target, "utf8");
-    expect(raw).toMatch(/\n  "a": 1/);
+    expect(raw).toMatch(/\n {2}"a": 1/);
   });
 
   it("never leaves a partially-written target on collision w/ existing file", async () => {

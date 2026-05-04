@@ -75,6 +75,7 @@ function withInlineProtection(
     return `\u0000P${protectedTokens.length - 1}\u0000`;
   });
   const transformed = transform(masked);
+  // eslint-disable-next-line no-control-regex -- intentional NUL sentinel
   return transformed.replace(/\u0000P(\d+)\u0000/g, (_m, idx: string) => {
     const i = Number(idx);
     return protectedTokens[i] ?? "";
@@ -87,10 +88,6 @@ function stripFillers(s: string): string {
     out = out.replace(re, "");
   }
   return out;
-}
-
-function collapseWhitespace(s: string): string {
-  return s.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").trim();
 }
 
 /**

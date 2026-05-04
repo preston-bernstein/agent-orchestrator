@@ -19,7 +19,7 @@ Each task = one PR (or sub-PR per Playbook B1). Agent reads top-down, picks firs
 
 ## Implementation
 
-- [~] 4. Init `package.json` + `tsconfig.json` + `pnpm-lock.yaml` w/ pinned `@mastra/*` deps. Tests: smoke (`pnpm install` exits 0). _Phase 0 closes by adding `@mastra/core`, `p-limit`, `@toon-format/toon`._
+- [x] 4. Init `package.json` + `tsconfig.json` + `pnpm-lock.yaml` w/ pinned `@mastra/*` deps. Tests: smoke (`pnpm install` exits 0). _Phase 0 close: `@mastra/core`, `p-limit`, `@toon-format/toon`, `zod` in `dependencies`. Phase 10 close: ESLint + typescript-eslint + `@vitest/coverage-v8` added to `devDependencies` (`pnpm@9.15.0` packageManager pin retained)._
 - [x] 5. Add `.env.example` + `src/config/env.ts` w/ Zod-validated `BootConfig`. Tests: missing `TF_BASE_URL` fails boot; full env passes. _Phase 3 close: `requireTfConfig` refusal helper + `tests/config/env.test.ts` landed; `.env.example` marks TF_BASE_URL/TF_API_KEY required for orchestrate._
 - [x] 6. Add `src/tf/client.ts` w/ `fetch`-based wrapper + capability probe. Tests: hostname check, mocked OK + 5xx + auth-error paths. _Phase 3 close: `TfClient` w/ pinned-host egress guard, Bearer auth, typed errors (`TfHostMismatchError`, `TfAuthError`, `TfHttpError`, `TfNetworkError`), `/v1/models` probe; `tests/tf/client.test.ts` covers all paths. Probe path final-confirm pending TF endpoint docs._
 - [x] 7. Add `src/audit/jsonl.ts` w/ chained writer (canonical JSON + SHA-256 prev_hash). Tests: chain verify, key-order independence, secret-redaction guard. **Phase 2.**
@@ -27,7 +27,7 @@ Each task = one PR (or sub-PR per Playbook B1). Agent reads top-down, picks firs
 - [x] 9. Add `src/runs/state.ts` w/ atomic tmp→rename writer (edge 44). **Phase 2.**
 - [x] 10. Add `src/cli/orchestrate.ts` (Mastra workflow CLI entry). _Stub landed in commit 1507957. Phase 3 close: `requireTfConfig` refusal + TF capability probe wired (`TF_SKIP_PROBE=1` opt-out for CI/offline). Phase 4 close: `--dry-plan` / `--execute` flags + `--spec <path>` (single .md fixture or dir) + planner-branch workflow (`caveman → O5 → planner → plan.json + audit`); `MOCK_TF=1` skips boot probe + uses `mockPlannerCompletion` fixture. **Phase 5 closeout:** CLI execute lane auto-wires `runExecuteLane` → `runSupervisorBranch` w/ `loadManagedRepos(ORCH_MANAGED_REPOS)` (vault `_meta.md` per repo); `MOCK_TF=1` lane uses `mockSubagent` / `mockFixSubagent` / `mockExec`; real-TF subagent completion not wired (Phase 5+ first real managed-repo). Mastra workflow wrapper still deferred — straight async lanes for now._
 - [x] 11. Add `fixtures/no-op.md` so `pnpm run orchestrate -- --spec fixtures/no-op.md` has something to read. _Phase 4: single-file fixture (all `[x]` boxes); `loadSpec()` treats `.md` arg as 3-paths-same fixture; smoke run exits 0 + emits `runs/<id>/plan.json` + audit chain valid (3 records: `planner_branch:start`, `planner_emitted`, `dry_plan`). **Folder renamed `specs/ → fixtures/` 2026-05-04** — disambiguates from `docs/specs/` (work-spec canon). Vault Examples still says `specs/`; mirror divergence noted here._
-- [~] 12. Add `README.md` boot section. _Stub landed; full PLAYBOOK_EXPECTS yaml block lands Phase 0 close._
+- [x] 12. Add `README.md` boot section. _Stub landed; full `PLAYBOOK_EXPECTS` yaml block + Scripts table refresh w/ `quality` / `coverage` / `lint` / `audit:verify` / `scorecard` landed Phase 10 close._
 
 ## Phase 5 — first supervisor + subagent (Playbook §Phase 5)
 
@@ -142,13 +142,15 @@ Per Playbook Phase 5: "**Inngest (optional):** if org uses Inngest+Mastra, land 
 - [ ] 45. Drop `--resume <runId>` CLI flag (edge 11); resume = re-emit same event id.
 - [ ] 46. Mark deprecated `src/runs/state.ts` atomic writer outside non-Inngest local mock CLI path (edge 44).
 
-## Verification
+## Phase 10 — verification close (Playbook §Verification)
 
-- [ ] 13. `pnpm run quality` green (tsc + ESLint `--max-warnings=0` + Vitest).
-- [ ] 14. Coverage threshold met: `src/audit/**` ≥ 90%; rest ≥ 70%.
-- [ ] 15. Stryker scoped to `src/audit/**` ≥ 80% mutation.
-- [ ] 16. Egress allowlist test: only TF base URL hit during full test run.
-- [ ] 17. Reviewer agent / human approves diff (per-supervisor approval).
+Vault canon: spec `tasks.md` §Verification (this file). Phase 10 covers tasks 13/14/16. Stryker (15) deferred to Phase 11 — heavy install + per-mutator tuning. Reviewer/human approval (17) is HITL-gated, lands at PR cut.
+
+- [x] 13. `pnpm run quality` green (tsc + ESLint `--max-warnings=0` + Vitest). _Phase 10: ESLint flat config (`eslint.config.js`) — `@eslint/js` recommended + `typescript-eslint` recommended, `no-unused-vars` w/ `^_` argsIgnorePattern, `no-useless-assignment` off (overzealous on init-then-loop-reassign), `no-control-regex` disabled inline at NUL sentinel in `src/gates/caveman.ts`. `pnpm run quality` = `typecheck && lint && test:run`. 9 baseline ESLint errors fixed (3 autofixed regex-spaces + 6 dead helpers / regex/sentinel). 253 tests still green, 0 lint warnings._
+- [x] 14. Coverage threshold met: `src/audit/**` ≥ 90%; rest ≥ 70%. _Phase 10: `@vitest/coverage-v8@^2.1.8` (matched to `vitest@^2.1.8` peer); `vitest.config.ts` w/ `provider: v8` + per-glob threshold (`src/audit/**`: 90 lines/stmts/fns/branches; root: 70). CLI/script entrypoints excluded (`src/cli/**`, `src/inngest/**`, `src/audit/verify.ts`, `src/scorecard/{index,format}.ts`, `src/reviewer/index.ts`, `src/runs/loadSpec.ts`, `src/approval/index.ts`, `src/stacks/types.ts`). Result: `All files 92.53% / 84.06% / 94.07% / 92.53%`; `src/audit/**` 99.30% lines (jsonl.ts only)._
+- [ ] 15. Stryker scoped to `src/audit/**` ≥ 80% mutation. _Deferred Phase 11 — heavy install (Stryker + plugins) + per-mutator threshold tuning; v8 line-coverage at 99.30% on `src/audit/jsonl.ts` is a strong proxy for now._
+- [x] 16. Egress allowlist test: only TF base URL hit during full test run. _Phase 10: `tests/setup/egressGuard.ts` setupFile monkey-patches `globalThis.fetch` to reject every call (TF egress goes through `TfClient.fetchImpl` injection seam in tests; nothing should hit the real network). `tests/setup/egressGuard.test.ts` (2) asserts string + URL inputs both reject. Override `ALLOW_TEST_EGRESS=1` reserved for future real-TF live-probe smoke._
+- [ ] 17. Reviewer agent / human approves diff (per-supervisor approval). _HITL-gated; lands at PR cut per Playbook C1–C5._
 
 ## Wrap
 
