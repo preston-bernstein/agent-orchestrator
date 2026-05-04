@@ -15,7 +15,7 @@ Each task = one PR (or sub-PR per Playbook B1). Agent reads top-down, picks firs
 
 - [x] 1. Read `requirements` + `design`.
 - [x] 2. Confirm spec is `active` in `_active.md`.
-- [ ] 3. Create branch `feat/orch-bootstrap-1` (working on `main` until cut for PR).
+- [x] 3. Create branch `feat/orch-bootstrap-1` (working on `main` until cut for PR). _Branch cut 2026-05-04 at HEAD `1e10e94` (post Phase 11 mutation gate); origin/main already carries Phases 1–11 — wrap PR contains admin only (tasks.md ticks + `_active.md` move + `_index.md` no-op until merge)._
 
 ## Implementation
 
@@ -154,9 +154,9 @@ Vault canon: spec `tasks.md` §Verification (this file). Phase 10 covers tasks 1
 
 ## Wrap
 
-- [ ] 18. Update `_active.md` — move spec to `done`.
-- [ ] 19. Update `_index.md` — set `Merged: <date>`.
-- [ ] 20. File ADR if anything architectural surfaced.
+- [x] 18. Update `_active.md` — move spec to `done`. _PR-cut wrap 2026-05-04: spec moved out of "Active specs" into new "Done specs" section pointing at PR link (set after `gh pr create`)._
+- [ ] 19. Update `_index.md` — set `Merged: <date>`. _Held until actual merge — status flips `active → merged` + Merged date set in same commit (post-merge wrap)._
+- [x] 20. File ADR if anything architectural surfaced. _N/A — only ADR emitted across phases 1–11 was 0001 (Phase 9 closeout, Phase-2 trigger evaluation). No further architectural surface in Phase 10 (verification close) or Phase 11 (Stryker scope). Vault Examples ADRs 0003/0004/0005 mirror at Inngest entry, not bootstrap close._
 
 ## Blockers
 
