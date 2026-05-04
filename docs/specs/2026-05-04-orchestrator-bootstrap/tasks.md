@@ -20,13 +20,13 @@ Each task = one PR (or sub-PR per Playbook B1). Agent reads top-down, picks firs
 ## Implementation
 
 - [~] 4. Init `package.json` + `tsconfig.json` + `pnpm-lock.yaml` w/ pinned `@mastra/*` deps. Tests: smoke (`pnpm install` exits 0). _Phase 0 closes by adding `@mastra/core`, `p-limit`, `@toon-format/toon`._
-- [~] 5. Add `.env.example` + `src/config/env.ts` w/ Zod-validated `BootConfig`. Tests: missing `TF_BASE_URL` fails boot; full env passes. _Partial: env loader landed; TF_BASE_URL refusal lands Phase 3._
-- [ ] 6. Add `src/tf/client.ts` w/ `fetch`-based wrapper + capability probe. Tests: hostname check, mocked OK + 5xx + auth-error paths. **Phase 3.**
+- [x] 5. Add `.env.example` + `src/config/env.ts` w/ Zod-validated `BootConfig`. Tests: missing `TF_BASE_URL` fails boot; full env passes. _Phase 3 close: `requireTfConfig` refusal helper + `tests/config/env.test.ts` landed; `.env.example` marks TF_BASE_URL/TF_API_KEY required for orchestrate._
+- [x] 6. Add `src/tf/client.ts` w/ `fetch`-based wrapper + capability probe. Tests: hostname check, mocked OK + 5xx + auth-error paths. _Phase 3 close: `TfClient` w/ pinned-host egress guard, Bearer auth, typed errors (`TfHostMismatchError`, `TfAuthError`, `TfHttpError`, `TfNetworkError`), `/v1/models` probe; `tests/tf/client.test.ts` covers all paths. Probe path final-confirm pending TF endpoint docs._
 - [x] 7. Add `src/audit/jsonl.ts` w/ chained writer (canonical JSON + SHA-256 prev_hash). Tests: chain verify, key-order independence, secret-redaction guard. **Phase 2.**
 - [x] 8. Add `src/audit/verify.ts` CLI: `pnpm run audit:verify <path>` returns ok / break-at-record-N. **Phase 2.**
 - [x] 9. Add `src/runs/state.ts` w/ atomic tmp→rename writer (edge 44). **Phase 2.**
-- [ ] 10. Add `src/cli/orchestrate.ts` (Mastra workflow CLI entry). _Stub landed in commit 1507957 — Mastra wiring + TF probe lands Phase 3+._
-- [ ] 11. Add `specs/no-op.md` so `pnpm run orchestrate -- --spec specs/no-op.md` has something to read. **Phase 4 (planner).**
+- [~] 10. Add `src/cli/orchestrate.ts` (Mastra workflow CLI entry). _Stub landed in commit 1507957. Phase 3 close: `requireTfConfig` refusal + TF capability probe wired (`TF_SKIP_PROBE=1` opt-out for CI/offline). Phase 4 close: `--dry-plan` / `--execute` flags + `--spec <path>` (single .md fixture or dir) + planner-branch workflow (`caveman → O5 → planner → plan.json + audit`); `MOCK_TF=1` skips boot probe + uses `mockPlannerCompletion` fixture. Real Mastra workflow wrapper lands Phase 5+._
+- [x] 11. Add `specs/no-op.md` so `pnpm run orchestrate -- --spec specs/no-op.md` has something to read. _Phase 4: single-file fixture (all `[x]` boxes); `loadSpec()` treats `.md` arg as 3-paths-same fixture; smoke run exits 0 + emits `runs/<id>/plan.json` + audit chain valid (3 records: `planner_branch:start`, `planner_emitted`, `dry_plan`)._
 - [~] 12. Add `README.md` boot section. _Stub landed; full PLAYBOOK_EXPECTS yaml block lands Phase 0 close._
 
 ## Cross-repo
@@ -46,18 +46,18 @@ Vault plan + HITL between chunks: `Orchestration PoC/Orchestrator Self-Fidelity 
 
 ### SF2 — O5 deterministic lane
 
-- [ ] 25. Implement `plannerDryRun()` per vault `Build/Patterns/O5-planner-dry-run.md`. **Phase 4.**
-- [ ] 26. Insert pre-planner workflow step. **Phase 4.**
+- [x] 25. Implement `plannerDryRun()` per vault `Build/Patterns/O5-planner-dry-run.md`. _Landed `src/planner/plannerDryRun.ts` w/ injection seams (`gitStatus`, `readTasks`); `tests/planner/plannerDryRun.test.ts` covers 10 branches: all-checked + clean ⇒ skip; open `[ ]` / `[~]` / missing tasks.md ⇒ no skip; dirty tree ⇒ no skip; prior fix-loop ⇒ no skip; multi-spec OR semantics._
+- [x] 26. Insert pre-planner workflow step. _Landed `src/workflows/plannerBranch.ts`: `plannerDryRun` runs before TF; `skip:true` ⇒ audit `planner_skipped` + return early (no completion call). Test `runPlannerBranch — O5 skipped_no_change_needed` asserts completion never invoked._
 
 ### SF3 — A4 `--dry-plan` / `--execute`
 
-- [ ] 27. CLI flags `--dry-plan` + `--execute`. **Phase 4.**
-- [ ] 28. Persist `runs/<run_id>/plan.json`; dry-plan stops before supervisors. **Phase 4.**
-- [ ] 29. Integration test: `--dry-plan` ⇒ zero managed-repo subprocess. **Phase 4.**
+- [x] 27. CLI flags `--dry-plan` + `--execute`. _Landed `src/cli/args.ts` (mutex check, `ORCH_DRY_PLAN=1` env opt-in, `--reason` for Phase 7); `tests/cli/args.test.ts` 10 cases incl. mutex + env flag interaction._
+- [x] 28. Persist `runs/<run_id>/plan.json`; dry-plan stops before supervisors. _`runPlannerBranch` writes plan via `atomicWriteJson`; on `dry_plan` outcome audits `dry_plan` event + returns; on `execute` audits `execution_started` (Phase 5 wires actual supervisors)._
+- [x] 29. Integration test: `--dry-plan` ⇒ zero managed-repo subprocess. _Structural proof via `dryRunDeps` injection seam (`gitStatus` / `readTasks` fakes ⇒ zero `child_process` from `plannerDryRun`); workflow code itself contains no managed-repo spawn; audit asserts `dry_plan` present + `execution_started` absent + no `supervisor_spawn` event. Paired w/ task 34 abuse guard._
 
 ### SF4 — assembler allow-list (MVP)
 
-- [ ] 30. `src/llm/assemblePrompt.ts` — reject if globs ∉ `path_ownership_map`. **Phase 4.**
+- [x] 30. `src/llm/assemblePrompt.ts` — reject if globs ∉ `path_ownership_map`. _Landed `src/llm/{assemblePrompt,toonContext}.ts`; assembly order matches `Build/Prompts/Index.md` (caveman → TOON → base → stack → context → XML → schema); `PathOwnershipViolation` on declared-path miss; `PromptBudgetError` on est > `ORCH_MAX_PROMPT_TOKENS` (default 100k); minimal `globMatch` w/ `**` + `*`. 13 tests + 6 TOON round-trip tests._
 
 ### SF5 — HITL policy hook (**C1–C5**)
 
@@ -67,7 +67,7 @@ Vault plan + HITL between chunks: `Orchestration PoC/Orchestrator Self-Fidelity 
 ### SF6 — telemetry + abuse
 
 - [ ] 33. Audit rollup / `pnpm run scorecard` counters. **Phase 8.**
-- [ ] 34. Abuse vitest: supervisor spawn throws if `!cli_flags.execute`. **Phase 4 / 5.**
+- [x] 34. Abuse vitest: supervisor spawn throws if `!cli_flags.execute`. _Landed `supervisorSpawnGuard()` in `src/workflows/plannerBranch.ts`; throws `SupervisorNotWiredError` unless `cli_flags.execute === true` (`undefined`, `false`, truthy strings all refused); test cases cover 4 negative + 1 positive._
 
 ## Inngest integration (durable outer DAG — self-hosted only)
 
@@ -127,7 +127,7 @@ Per Playbook Phase 5: "**Inngest (optional):** if org uses Inngest+Mastra, land 
 
 | Task # | Blocked by | Owner | Note |
 | ------ | ---------- | ----- | ---- |
-| 6 | TF capability probe response shape | Preston | open question in `requirements.md` |
+| 6 (probe path final-confirm) | TF capability probe response shape | Preston | `/v1/models` chosen as PoC probe; re-confirm vs TF endpoint docs once landed |
 | 7 | hash algorithm choice (SHA-256 vs Blake3) | Preston | leaning SHA-256 (stdlib) |
 | 21–34 (self-fidelity) | Vault **SF\*** HITL ticks | Preston | `Orchestrator Self-Fidelity Parity.md` |
 | 35–46 (Inngest) | Vault **I\*** HITL ticks; **37a outbound gate** blocks I3 merge | Preston | optional per Playbook Phase 5 |

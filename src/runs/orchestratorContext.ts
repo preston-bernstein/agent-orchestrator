@@ -29,6 +29,10 @@ export interface InitRunContextInput {
   expectations_snapshot: ExpectationsSnapshot;
   audit_path: string;
   state_file_path: string;
+  /** Frozen spec snapshots — defaults to []. Phase 4+ wiring. */
+  specs?: RunContextT["specs"];
+  /** TF capability probe result — defaults to undefined (mock / skip lane). */
+  tf_capabilities?: RunContextT["tf_capabilities"];
 }
 
 /**
@@ -43,7 +47,8 @@ export function initRunContext(input: InitRunContextInput): OrchestratorContextT
       started_at: input.started_at,
       cli_flags: input.cli_flags,
       status: "pending",
-      specs: [],
+      specs: input.specs ?? [],
+      tf_capabilities: input.tf_capabilities,
       path_ownership_map: {},
       visited_nodes: [],
       attempt_counter: {},
