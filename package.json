@@ -1,0 +1,25 @@
+{
+  "name": "agent-orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local multi-agent orchestrator (Mastra + optional Inngest) — PoC bootstrap",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:run": "vitest --run",
+    "orchestrate": "tsx src/cli/orchestrate.ts"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
