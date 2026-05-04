@@ -25,6 +25,17 @@ pnpm run orchestrate
 | `pnpm run test:run` | Vitest |
 | `pnpm run typecheck` | `tsc --noEmit` |
 
-## PLAYBOOK_EXPECTS (stub)
+## PLAYBOOK_EXPECTS (A3 pin-the-brain)
 
-Match `docs/playbook-expectations.md` frontmatter; optional env `EXPECTED_VAULT_SHA` + `STRICT_EXPECTATIONS=1` for strict check.
+Full checklist + bump procedure: `docs/playbook-expectations.md`. Must stay aligned w/ block below — drift = chore commit on both.
+
+```yaml
+PLAYBOOK_EXPECTS:
+  vault_repo_label: "Home Network Vault"
+  vault_git_sha: "15079571ebd9d52fcf77dd84ff06f67d69d3b941"
+  vault_cut_date: "2026-05-04"
+  playbook_path: "Development/Vibe Coding Hardening/Orchestration PoC/Build/Playbook.md"
+  fidelity_plan_path: "Development/Vibe Coding Hardening/Orchestration PoC/Build/Playbook Fidelity Plan.md"
+```
+
+Optional env: `EXPECTED_VAULT_SHA=<sha>` + `STRICT_EXPECTATIONS=1` → boot throws on mismatch.

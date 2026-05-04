@@ -1,3 +1,19 @@
-# ADRs
+---
+created: 2026-05-04
+updated: 2026-05-04
+tags: [decision, adr, index]
+---
 
-(none yet)
+# Decisions index — `agent-orchestrator`
+
+| ADR  | Title | Status   | Date       | Supersedes | Superseded by | Notes |
+| ---- | ----- | -------- | ---------- | ---------- | ------------- | ----- |
+| _none yet — populated as repo lands ADRs per phase_ | | | | | | |
+
+## Conventions
+
+- ADR id = 4-digit zero-padded, sequential per repo.
+- File: `YYYY-MM-DD-NNNN-<slug>.md`.
+- Status: `proposed | accepted | superseded | deprecated`.
+- Use vault `Templates/decision.md.template` for new entries.
+- Vault Examples ADRs (0001 Mastra default, 0002 Stack profile, 0003 Inngest outer durable shell, 0004 Observability split, 0005 Inngest self-host prod target) mirror **at scaffold-time per phase** — not preloaded. Track in vault `Build/Playbook` + `docs/playbook-expectations.md`.

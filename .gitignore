@@ -4,3 +4,6 @@ coverage/
 runs/
 .env
 *.log
+
+# Vault Build kit working copy (canon lives in Home Network Vault).
+Orchestration PoC/
