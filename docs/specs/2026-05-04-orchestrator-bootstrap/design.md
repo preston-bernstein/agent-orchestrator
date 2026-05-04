@@ -22,7 +22,7 @@ Mirrors vault `Examples/docs/specs/2026-05-02-orchestrator-bootstrap/design.md`.
 | run state        | `src/runs/state.ts`                           | new    |
 | config           | `.env.example`, `src/config/env.ts`           | new    |
 | README           | `README.md`                                   | new    |
-| no-op spec       | `specs/no-op.md`                              | new    |
+| no-op fixture    | `fixtures/no-op.md`                           | new    |
 | tests            | `tests/audit.test.ts`, `tests/tf-client.test.ts`, `tests/cli.test.ts` | new |
 | expectations     | `src/config/expectations.ts`                  | new (SF1) |
 | planner dry-run  | `src/planner/plannerDryRun.ts`                | new (SF2) |

@@ -11,9 +11,9 @@ const SPEC_NO_OP: SpecSnapshotT = {
   slug: "no-op",
   repo: "agent-orchestrator",
   stack: "ts-node",
-  requirements_path: "specs/no-op.md",
-  tasks_path: "specs/no-op.md",
-  design_path: "specs/no-op.md",
+  requirements_path: "fixtures/no-op.md",
+  tasks_path: "fixtures/no-op.md",
+  design_path: "fixtures/no-op.md",
   hash: "0".repeat(64),
 };
 

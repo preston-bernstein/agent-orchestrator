@@ -5,6 +5,7 @@ const envSchema = z.object({
   TF_API_KEY: z.string().min(1).optional(),
   RUNS_DIR: z.string().default("./runs"),
   EXPECTED_VAULT_SHA: z.string().min(7).max(64).optional(),
+  ORCH_MANAGED_REPOS: z.string().optional(),
 });
 
 export type BootConfig = z.infer<typeof envSchema> & {
@@ -22,6 +23,7 @@ export function loadBootConfig(env = process.env): BootConfig {
     TF_API_KEY: env.TF_API_KEY,
     RUNS_DIR: env.RUNS_DIR,
     EXPECTED_VAULT_SHA: env.EXPECTED_VAULT_SHA,
+    ORCH_MANAGED_REPOS: env.ORCH_MANAGED_REPOS,
   });
   return { ...parsed, strictExpectations, skipTfProbe };
 }

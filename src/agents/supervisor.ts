@@ -33,8 +33,10 @@ import {
  *   5. Approval prep: write merged-diff to `runs/<id>/<sup>/pending.diff`
  *      when all tasks green; set `pending_diff_path` (vault §Behavior #10).
  *
- * Out of scope (Phase 5):
- *   - Cross-supervisor coordination (Phase 6).
+ * Out of scope (Phase 5; Phase 6 lands API-first edge lock + integration step
+ * at the workflow layer, not inside this supervisor):
+ *   - Cross-supervisor parallelism (Inngest absorbs durability + concurrency
+ *     per ADR 0003 — tasks 35–46, HITL-gated).
  *   - Real `git apply` to a managed repo working tree (Phase 5+ E2E).
  *   - Inngest durable shell (tasks 35–46, HITL-gated).
  */

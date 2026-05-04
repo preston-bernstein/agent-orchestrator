@@ -4,7 +4,8 @@
  *   --spec <path>     spec file or directory (Phase 4 fixture mode = .md file)
  *   --dry-plan        plan-only; no supervisor spawn (A4 default)
  *   --execute         risky lane: route plan → supervisors (Phase 5+)
- *   --reason <text>   required when execute carries danger flag (Phase 7)
+ *   --reason <text>   required with --danger-apply (Phase 7 / C1)
+ *   --danger-apply    irreversible lane; must pair with --execute + --reason
  *
  * Mutually exclusive flags throw `CliArgError`. Unknown flags are echoed
  * back in `unknown[]` so callers may decide policy.
@@ -14,6 +15,7 @@ export interface ParsedArgs {
   spec?: string;
   dryPlan: boolean;
   execute: boolean;
+  dangerApply: boolean;
   reason?: string;
   unknown: string[];
 }
@@ -29,6 +31,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const out: ParsedArgs = {
     dryPlan: false,
     execute: false,
+    dangerApply: false,
     unknown: [],
   };
   for (let i = 0; i < argv.length; i++) {
@@ -39,6 +42,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         break;
       case "--execute":
         out.execute = true;
+        break;
+      case "--danger-apply":
+        out.dangerApply = true;
         break;
       case "--spec": {
         const v = argv[i + 1];
@@ -65,6 +71,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (process.env.ORCH_DRY_PLAN === "1") out.dryPlan = true;
   if (out.dryPlan && out.execute) {
     throw new CliArgError("--dry-plan and --execute are mutually exclusive");
+  }
+  if (out.dryPlan && out.dangerApply) {
+    throw new CliArgError("--danger-apply conflicts with dry-plan mode");
   }
   return out;
 }

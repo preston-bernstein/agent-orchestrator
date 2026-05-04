@@ -29,12 +29,34 @@ describe("parseArgs (Phase 4 task 27 — CLI flags)", () => {
     const a = parseArgs(["--execute"]);
     expect(a.execute).toBe(true);
     expect(a.dryPlan).toBe(false);
+    expect(a.dangerApply).toBe(false);
+  });
+
+  it("--danger-apply sets dangerApply", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    const a = parseArgs(["--execute", "--danger-apply", "--reason", "ok"]);
+    expect(a.dangerApply).toBe(true);
+    expect(a.execute).toBe(true);
+  });
+
+  it("--danger-apply + --dry-plan throws", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    expect(() =>
+      parseArgs(["--dry-plan", "--danger-apply", "--reason", "x"]),
+    ).toThrow(CliArgError);
+  });
+
+  it("ORCH_DRY_PLAN=1 + --danger-apply throws (dry mode)", () => {
+    process.env.ORCH_DRY_PLAN = "1";
+    expect(() =>
+      parseArgs(["--danger-apply", "--reason", "x"]),
+    ).toThrow(CliArgError);
   });
 
   it("--spec <path> captured", () => {
     delete process.env.ORCH_DRY_PLAN;
-    const a = parseArgs(["--spec", "specs/no-op.md"]);
-    expect(a.spec).toBe("specs/no-op.md");
+    const a = parseArgs(["--spec", "fixtures/no-op.md"]);
+    expect(a.spec).toBe("fixtures/no-op.md");
   });
 
   it("--spec without arg throws CliArgError", () => {

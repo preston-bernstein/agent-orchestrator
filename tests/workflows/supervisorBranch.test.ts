@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   UnknownSupervisorCwd,
+  compareSupervisorIds,
   runSupervisorBranch,
 } from "../../src/workflows/supervisorBranch.js";
 import { mockSubagentCompletion } from "../../src/agents/subagent.js";
@@ -196,5 +197,151 @@ describe("runSupervisorBranch — fix-loop converges then green", () => {
     expect(sup.result.output.status).toBe("done");
     expect(sup.result.output.task_results[0]?.fix_loop_count).toBe(1);
     expect(sup.result.gate_history.length).toBe(2);
+  });
+});
+
+describe("compareSupervisorIds — Phase 6 canonical ordering (edge 1 API-first)", () => {
+  it("orders spring before react before orch", () => {
+    expect(compareSupervisorIds("spring", "react")).toBeLessThan(0);
+    expect(compareSupervisorIds("react", "orch")).toBeLessThan(0);
+    expect(compareSupervisorIds("spring", "orch")).toBeLessThan(0);
+  });
+  it("places unknown ids after known", () => {
+    expect(compareSupervisorIds("spring", "data")).toBeLessThan(0);
+    expect(compareSupervisorIds("data", "react")).toBeGreaterThan(0);
+  });
+  it("alpha-sorts pairs of unknown ids", () => {
+    expect(compareSupervisorIds("data", "infra")).toBeLessThan(0);
+  });
+});
+
+describe("runSupervisorBranch — Phase 6 API-first edge lock", () => {
+  it("blocks react supervisor when consumer task w/o publish (no spring task)", async () => {
+    const { ctx, runDir, repoCwd } = makeRun({ runId: "edgelock-no-publish" });
+    const reactCwd = path.join(repoCwd, "..", "react-ui");
+    mkdirSync(reactCwd, { recursive: true });
+    const plan: PlannerOutputT = {
+      status: "ready",
+      rationale: "react consumer alone — should block",
+      tasks: [
+        {
+          id: "react-T1",
+          spec_slug: "ui-feat",
+          repo: "react-ui",
+          supervisor: "react",
+          title: "consume new endpoint",
+          paths: ["src/feature/**"],
+          depends_on: [],
+          consumes_contract: "target/openapi.json",
+        },
+      ],
+      path_ownership_map: {
+        "react-T1": ["src/feature/**"],
+      },
+      refusals: [],
+    };
+    ctx.path_ownership_map = plan.path_ownership_map;
+
+    const out = await runSupervisorBranch(
+      { ctx, plan, cwds: { react: reactCwd }, runDir },
+      {
+        subagentCompletion: mockSubagentCompletion(),
+        fixSubagentCompletion: mockFixSubagentCompletion(),
+        exec: mockExec({ exit: 0 }),
+      },
+    );
+
+    expect(out.aggregateStatus).toBe("blocked_on_contract");
+    expect(out.gate_contract_published).toBe(false);
+    const sup = out.supervisors[0];
+    if (!sup) throw new Error("missing supervisor result");
+    expect(sup.result.output.status).toBe("block_for_contract");
+    expect(sup.result.output.next_action).toBe("wait_for_contract");
+    expect(sup.result.gate_history.length).toBe(0);
+
+    const audit = readFileSync(ctx.audit_path, "utf8");
+    expect(audit).toMatch(/"step":"supervisor_blocked"/);
+    expect(audit).not.toMatch(/"step":"gate_invocation"/);
+    const verify = verifyChain(ctx.audit_path);
+    expect(verify.valid).toBe(true);
+  });
+
+  it("ordering — runs spring before react regardless of plan task order", async () => {
+    const { ctx, runDir, repoCwd } = makeRun({ runId: "edgelock-ordering" });
+    const reactCwd = path.join(repoCwd, "..", "react-ui");
+    mkdirSync(reactCwd, { recursive: true });
+    const plan: PlannerOutputT = {
+      status: "ready",
+      rationale: "react listed first; spring second; runner must reorder",
+      tasks: [
+        {
+          id: "react-T1",
+          spec_slug: "x-feat",
+          repo: "react-ui",
+          supervisor: "react",
+          title: "consume",
+          paths: ["src/feature/**"],
+          depends_on: ["spring-T1"],
+          consumes_contract: "target/openapi.json",
+        },
+        {
+          id: "spring-T1",
+          spec_slug: "x-feat",
+          repo: "spring-api",
+          supervisor: "spring",
+          title: "publish",
+          paths: ["src/main/java/auth/**"],
+          depends_on: [],
+          contract_artifact: "target/openapi.json",
+        },
+      ],
+      path_ownership_map: {
+        "react-T1": ["src/feature/**"],
+        "spring-T1": ["src/main/java/auth/**"],
+      },
+      refusals: [],
+    };
+    ctx.path_ownership_map = plan.path_ownership_map;
+
+    const out = await runSupervisorBranch(
+      {
+        ctx,
+        plan,
+        cwds: { spring: repoCwd, react: reactCwd },
+        runDir,
+      },
+      {
+        subagentCompletion: async (prompt) => {
+          // Echo a per-task patch + files_touched matching task.paths so
+          // `enforceFilesTouched` accepts. Discriminate on `task_id:` line
+          // (depends_on field also mentions spring-T1 → can't substring match).
+          const isSpring = prompt.text.includes("task_id: spring-T1");
+          return {
+            status: "patch" as const,
+            rationale: "mock",
+            patch: "diff --git a/x b/x\n",
+            files_touched: isSpring
+              ? ["src/main/java/auth/A.java"]
+              : ["src/feature/x.ts"],
+            refusals: [],
+            context_request: [],
+          };
+        },
+        fixSubagentCompletion: mockFixSubagentCompletion(),
+        exec: mockExec({ exit: 0, stdout: "OK" }),
+      },
+    );
+
+    expect(out.aggregateStatus).toBe("green");
+    expect(out.supervisors.map((s) => s.supervisorId)).toEqual([
+      "spring",
+      "react",
+    ]);
+    expect(out.gate_contract_published).toBe(true);
+    expect(out.contract_producers.length).toBe(1);
+    expect(out.contract_producers[0]?.taskId).toBe("spring-T1");
+    expect(out.contract_producers[0]?.contractArtifact).toBe(
+      "target/openapi.json",
+    );
   });
 });

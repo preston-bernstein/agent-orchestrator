@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test:run": "vitest --run",
     "orchestrate": "tsx src/cli/orchestrate.ts",
-    "audit:verify": "tsx src/audit/verify.ts"
+    "audit:verify": "tsx src/audit/verify.ts",
+    "scorecard": "tsx src/scorecard/index.ts"
   },
   "dependencies": {
     "@mastra/core": "^1.31.0",

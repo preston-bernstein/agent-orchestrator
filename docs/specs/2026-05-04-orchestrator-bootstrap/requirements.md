@@ -43,7 +43,7 @@ Mirrors vault `Examples/docs/specs/2026-05-02-orchestrator-bootstrap/` — slug 
 ## Acceptance
 
 - [ ] All EARS rows have a passing test (`vitest`).
-- [ ] `pnpm run orchestrate -- --spec specs/no-op.md` exits 0.
+- [ ] `pnpm run orchestrate -- --spec fixtures/no-op.md` exits 0.
 - [ ] `pnpm run audit:verify runs/<id>/audit.jsonl` returns "chain valid."
 - [ ] Egress allowlist test passes: only TF base URL hit.
 - [ ] README boot section + `.env.example` shipped.

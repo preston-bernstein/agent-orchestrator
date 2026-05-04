@@ -1,16 +1,18 @@
 import type { StackProfile } from "./types.js";
 import { javaSpringProfile } from "./javaSpring.js";
+import { tsReactViteProfile } from "./tsReactVite.js";
 
 /**
  * Stack registry. Add a profile here + a vault `Build/Prompts/Stacks/<id>.md`
  * overlay file in lockstep — vault canon is single source of truth (A3).
  *
- * Phase 5 only ships `java-spring`. Phase 6 lands `ts-react-vite`. `ts-node`
- * (this orchestrator's own stack) is intentionally absent — Phase 5 supervisor
- * lane runs against managed repos, not self.
+ * Phase 5 shipped `java-spring`. Phase 6 lands `ts-react-vite`. `ts-node`
+ * (this orchestrator's own stack) is intentionally absent — supervisor lane
+ * runs against managed repos, not self.
  */
 const REGISTRY: Readonly<Record<string, StackProfile>> = Object.freeze({
   "java-spring": javaSpringProfile,
+  "ts-react-vite": tsReactViteProfile,
 });
 
 export class UnknownStackError extends Error {
@@ -32,5 +34,5 @@ export function listStackIds(): readonly string[] {
   return Object.keys(REGISTRY);
 }
 
-export { javaSpringProfile };
+export { javaSpringProfile, tsReactViteProfile };
 export type { StackProfile };

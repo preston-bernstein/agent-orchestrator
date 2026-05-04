@@ -50,9 +50,14 @@ export interface PlannerBranchInput {
 }
 
 export type PlannerBranchOutcome =
-  | { kind: "skipped"; reason: string }
-  | { kind: "dry_plan"; planPath: string; plan: PlannerOutputT }
-  | { kind: "execution_started"; planPath: string; plan: PlannerOutputT };
+  | { kind: "skipped"; reason: string; auditTailHash: string }
+  | { kind: "dry_plan"; planPath: string; plan: PlannerOutputT; auditTailHash: string }
+  | {
+      kind: "execution_started";
+      planPath: string;
+      plan: PlannerOutputT;
+      auditTailHash: string;
+    };
 
 export class CliFlagConflict extends Error {
   constructor() {
@@ -145,7 +150,11 @@ export async function runPlannerBranch(
       decisions: [dryRun.reason],
       timestamp: new Date().toISOString(),
     });
-    return { kind: "skipped", reason: dryRun.reason };
+    return {
+      kind: "skipped",
+      reason: dryRun.reason,
+      auditTailHash: audit.currentPrevHash,
+    };
   }
 
   const completion = resolveCompletion(input);
@@ -180,7 +189,12 @@ export async function runPlannerBranch(
       decisions: ["A4 mutation gate held: no supervisor spawn"],
       timestamp: new Date().toISOString(),
     });
-    return { kind: "dry_plan", planPath, plan };
+    return {
+      kind: "dry_plan",
+      planPath,
+      plan,
+      auditTailHash: audit.currentPrevHash,
+    };
   }
 
   audit.write({
@@ -190,5 +204,10 @@ export async function runPlannerBranch(
     decisions: ["execute=true; handing off to supervisors"],
     timestamp: new Date().toISOString(),
   });
-  return { kind: "execution_started", planPath, plan };
+  return {
+    kind: "execution_started",
+    planPath,
+    plan,
+    auditTailHash: audit.currentPrevHash,
+  };
 }

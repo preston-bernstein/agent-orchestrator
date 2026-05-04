@@ -6,9 +6,11 @@ import type { SpecSnapshotT } from "./RunContext.js";
 /**
  * Load a single spec into a `SpecSnapshot`. Phase 4 supports:
  *
- *   1. **Single .md fixture** — `--spec specs/no-op.md`. All three of
+ *   1. **Single .md fixture** — `--spec fixtures/no-op.md`. All three of
  *      `requirements_path` / `tasks_path` / `design_path` point at the same
  *      file (planner reads checkboxes only; O5 dry-run uses tasks_path).
+ *      `fixtures/` is runtime-input fixtures; **not** the work-spec canon
+ *      (`docs/specs/`).
  *   2. **Spec directory** — `--spec docs/specs/<slug>/`. Loads
  *      `requirements.md`, `tasks.md`, `design.md` from inside.
  *
