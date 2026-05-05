@@ -157,3 +157,128 @@ describe("estimateTokens", () => {
     expect(estimateTokens("")).toBe(0);
   });
 });
+
+// --- stryker kill tests (mutation gate) ---
+
+describe("assemblePrompt — env cap edge cases (kill mutants L124–126)", () => {
+  it("ORCH_MAX_PROMPT_TOKENS=0 falls back to default (kills `<= 0` → `< 0`)", () => {
+    process.env.ORCH_MAX_PROMPT_TOKENS = "0";
+    const out = assemblePrompt({
+      caveman: "small",
+      basePrompt: "small",
+      agentRole: "planner",
+    });
+    expect(out.estTokens).toBeGreaterThan(0); // reached completion w/ default cap, didn't throw at cap=0
+  });
+
+  it("ORCH_MAX_PROMPT_TOKENS=-5 falls back to default (kills `||` → `&&`)", () => {
+    process.env.ORCH_MAX_PROMPT_TOKENS = "-5";
+    expect(() =>
+      assemblePrompt({
+        caveman: "small",
+        basePrompt: "small",
+        agentRole: "planner",
+      }),
+    ).not.toThrow();
+  });
+
+  it("ORCH_MAX_PROMPT_TOKENS=abc (NaN) falls back to default", () => {
+    process.env.ORCH_MAX_PROMPT_TOKENS = "abc";
+    expect(() =>
+      assemblePrompt({
+        caveman: "small",
+        basePrompt: "small",
+        agentRole: "planner",
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("assemblePrompt — section composition (kill mutants L135–148)", () => {
+  it("sections array starts empty (kills L135 ArrayDeclaration sentinel)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      agentRole: "planner",
+    });
+    expect(out.sections).toEqual(["C", "B"]);
+    expect(out.sections).not.toContain("Stryker was here");
+  });
+
+  it("whitespace-only caveman is skipped (kills L136 conditional-true)", () => {
+    const out = assemblePrompt({
+      caveman: "   \n\t  ",
+      basePrompt: "BASE",
+      agentRole: "planner",
+    });
+    expect(out.sections).toEqual(["BASE"]);
+    expect(out.text).toBe("BASE");
+  });
+
+  it("non-empty caveman is included (kills L136 conditional-false)", () => {
+    const out = assemblePrompt({
+      caveman: "CAVE",
+      basePrompt: "BASE",
+      agentRole: "planner",
+    });
+    expect(out.sections[0]).toBe("CAVE");
+  });
+
+  it("caveman is trimmed before push (kills L136 .trim() method-removal)", () => {
+    const out = assemblePrompt({
+      caveman: "   CAVE   ",
+      basePrompt: "BASE",
+      agentRole: "planner",
+    });
+    expect(out.sections[0]).toBe("CAVE");
+  });
+
+  it("toonSections=undefined ⇒ no throw, no toon section (kills L138 conditional-true)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      agentRole: "planner",
+    });
+    expect(out.sections).toEqual(["C", "B"]);
+  });
+
+  it("xmlBlobs=undefined ⇒ no throw (kills L148 conditional-true)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      agentRole: "planner",
+    });
+    expect(out.text).not.toMatch(/<[a-z_]+>/);
+  });
+
+  it("stackOverlay/taskContext/outputSchema absent ⇒ skipped (kills L145–154 method-removal)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      agentRole: "planner",
+    });
+    // No stack/context/schema markers in output.
+    expect(out.text).not.toContain("<output_schema>");
+    expect(out.sections.length).toBe(2);
+  });
+
+  it("stackOverlay whitespace-only ⇒ skipped (kills L145 method-removal)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      stackOverlay: "   ",
+      agentRole: "planner",
+    });
+    expect(out.sections.length).toBe(2);
+  });
+
+  it("non-empty stackOverlay is trimmed and included", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      stackOverlay: "  STACK  ",
+      agentRole: "planner",
+    });
+    expect(out.sections).toContain("STACK");
+  });
+});

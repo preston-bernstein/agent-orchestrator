@@ -19,6 +19,36 @@ describe("loadBootConfig", () => {
     expect(cfg.strictExpectations).toBe(true);
   });
 
+  it("STRICT_EXPECTATIONS=1 also flips on (kills L25 first-comparison mutant)", () => {
+    const cfg = loadBootConfig({ STRICT_EXPECTATIONS: "1" });
+    expect(cfg.strictExpectations).toBe(true);
+  });
+
+  it("TF_SKIP_PROBE=true also flips on (kills L27 first-comparison mutant)", () => {
+    const cfg = loadBootConfig({ TF_SKIP_PROBE: "true" });
+    expect(cfg.skipTfProbe).toBe(true);
+  });
+
+  it("INNGEST_DEV=true flips on (kills L29 first-comparison mutant)", () => {
+    const cfg = loadBootConfig({ INNGEST_DEV: "true" });
+    expect(cfg.inngestDev).toBe(true);
+  });
+
+  it("EXPECTED_VAULT_SHA min/max length both enforced (kills L7 chained-min mutants)", () => {
+    // min(7) — 6 chars rejected
+    expect(() => loadBootConfig({ EXPECTED_VAULT_SHA: "abcdef" })).toThrow();
+    // max(64) — 65 chars rejected (kills `min(7).min(64)` and `max(7)` mutants)
+    expect(() =>
+      loadBootConfig({ EXPECTED_VAULT_SHA: "a".repeat(65) }),
+    ).toThrow();
+    // 7-char sha accepted
+    const ok = loadBootConfig({ EXPECTED_VAULT_SHA: "abcdef0" });
+    expect(ok.EXPECTED_VAULT_SHA).toBe("abcdef0");
+    // 40-char (typical) accepted
+    const ok40 = loadBootConfig({ EXPECTED_VAULT_SHA: "a".repeat(40) });
+    expect(ok40.EXPECTED_VAULT_SHA).toBe("a".repeat(40));
+  });
+
   it("rejects malformed TF_BASE_URL", () => {
     expect(() => loadBootConfig({ TF_BASE_URL: "not-a-url" })).toThrow();
   });

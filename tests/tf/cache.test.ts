@@ -88,4 +88,19 @@ describe("TfCache — replay safety (I4 task 40)", () => {
     expect(k1).toBe(k2);
     expect(k1).toBe("r:a:h");
   });
+
+});
+
+// --- stryker kill test (mutation gate, isolated lifecycle) ---
+describe("TfCache.close() — kills L88 block-statement mutant", () => {
+  it("operations after close() throw", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tf-cache-close-"));
+    const c = new TfCache(join(dir, "iso.db"));
+    c.put({ runId: "r", agentName: "a", promptHash: "h" }, { ok: true });
+    c.close();
+    expect(() =>
+      c.put({ runId: "r2", agentName: "a", promptHash: "h" }, { x: 1 }),
+    ).toThrow();
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

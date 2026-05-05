@@ -85,6 +85,17 @@ describe("assertDangerApplyPolicy (task 32)", () => {
     ).toThrow(CliArgError);
   });
 
+  it("dryPlan+execute+dangerApply+reason throws on dry-plan branch (kills L100 mutants)", () => {
+    expect(() =>
+      assertDangerApplyPolicy({
+        execute: true,
+        dryPlan: true,
+        dangerApply: true,
+        reason: "non-empty",
+      }),
+    ).toThrow(/dry-plan/);
+  });
+
   it("throws when reason whitespace-only", () => {
     expect(() =>
       assertDangerApplyPolicy({
@@ -105,6 +116,25 @@ describe("assertDangerApplyPolicy (task 32)", () => {
         reason: "ticket ORCH-1 approved",
       }),
     ).not.toThrow();
+  });
+});
+
+describe("auditHitlEscalation — kill mutants (L78 reason slice)", () => {
+  it("danger_reason longer than 200 chars is sliced (kills L78 .slice removal)", () => {
+    const runDir = path.join(tmpRoot, "audit-slice");
+    mkdirSync(runDir, { recursive: true });
+    const p = path.join(runDir, "audit.jsonl");
+    const w = new AuditWriter({ path: p });
+    const longReason = "x".repeat(500);
+    auditHitlEscalation(w, "run-slice", {
+      signal: { kind: "danger_apply" },
+      danger_reason: longReason,
+    });
+    const raw = readFileSync(p, "utf8");
+    // Find the reason= token, slice off the trailing JSON delimiter.
+    const m = raw.match(/"reason=([^"]+)"/);
+    expect(m).not.toBeNull();
+    expect(m?.[1]?.length).toBe(200);
   });
 });
 

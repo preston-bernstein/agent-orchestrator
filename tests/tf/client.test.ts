@@ -107,4 +107,66 @@ describe("TfClient.probe", () => {
     const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
     await expect(client.probe()).rejects.toBeInstanceOf(TfAuthError);
   });
+
+  // --- stryker kill tests (mutation gate) ---
+
+  it("preserves caller-provided Authorization header (kills L120 conditional-true mutant)", async () => {
+    let captured: Headers | undefined;
+    const fetchImpl: FetchLike = async (_u, init) => {
+      captured = new Headers(init?.headers);
+      return jsonResponse({ ok: true });
+    };
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    await client.request("/v1/models", {
+      headers: { Authorization: "Bearer caller-token" },
+    });
+    expect(captured?.get("authorization")).toBe("Bearer caller-token");
+  });
+
+  it("preserves caller-provided Accept header (kills L123 conditional-true mutant)", async () => {
+    let captured: Headers | undefined;
+    const fetchImpl: FetchLike = async (_u, init) => {
+      captured = new Headers(init?.headers);
+      return jsonResponse({ ok: true });
+    };
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    await client.request("/v1/models", {
+      headers: { Accept: "text/plain" },
+    });
+    expect(captured?.get("accept")).toBe("text/plain");
+  });
+
+  it("status=500 specifically maps to TfHttpError (kills L144 `>= 500` → `> 500`)", async () => {
+    const fetchImpl: FetchLike = async () =>
+      new Response("internal", { status: 500 });
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    await expect(client.request("/v1/models")).rejects.toBeInstanceOf(TfHttpError);
+  });
+
+  it("probe on non-ok 404 throws TfHttpError (kills L158 `if (!res.ok)` → false)", async () => {
+    const fetchImpl: FetchLike = async () =>
+      new Response("not found", { status: 404 });
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    await expect(client.probe()).rejects.toBeInstanceOf(TfHttpError);
+  });
+
+  it("probe with malformed JSON keeps raw === null (kills L162 catch arrow `null` → `undefined`)", async () => {
+    const fetchImpl: FetchLike = async () =>
+      new Response("not json {{{", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    const res = await client.probe();
+    expect(res.raw).toBeNull();
+    expect(res.models).toEqual([]);
+  });
+
+  it("probe filters non-object entries in data array (kills L174 entry guard)", async () => {
+    const fetchImpl: FetchLike = async () =>
+      jsonResponse({ data: ["not-an-obj", null, { id: "valid-1" }, 42] });
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    const res = await client.probe();
+    expect(res.models).toEqual(["valid-1"]);
+  });
 });
