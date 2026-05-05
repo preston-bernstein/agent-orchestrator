@@ -10,6 +10,8 @@ export default [
       "runs/**",
       "Orchestration PoC/**",
       "coverage/**",
+      ".stryker-tmp-*/**",
+      "reports/mutation/**",
       "**/*.d.ts",
     ],
   },

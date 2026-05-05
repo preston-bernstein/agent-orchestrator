@@ -1,6 +1,5 @@
-# Six parallel jobs (matrix): typecheck, lint, coverage, fallow, Stryker T0, Stryker wide.
-# Each leg does its own checkout + cached install (no shard setup job).
-# Local full sweep: `pnpm run ci` (sequential). Branch rule: workflow or job `CI (all checks)`.
+# Single job runs the same surface as locally: `pnpm run ci` (six checks in
+# parallel on one runner via `concurrently`). For ordered logs use `pnpm run ci:seq`.
 name: CI
 
 on:
@@ -9,31 +8,9 @@ on:
 
 jobs:
   check:
-    name: ${{ matrix.name }}
+    name: CI
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.timeout }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: typecheck
-            cmd: pnpm run typecheck
-            timeout: 10
-          - name: lint
-            cmd: pnpm run lint
-            timeout: 10
-          - name: coverage
-            cmd: pnpm run coverage
-            timeout: 15
-          - name: fallow
-            cmd: pnpm exec fallow --ci
-            timeout: 15
-          - name: mutation-t0
-            cmd: pnpm run mutation:t0
-            timeout: 25
-          - name: mutation-wide
-            cmd: pnpm run mutation:wide
-            timeout: 45
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -49,13 +26,5 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Run
-        run: ${{ matrix.cmd }}
-
-  ci-ok:
-    name: CI (all checks)
-    runs-on: ubuntu-latest
-    needs: [check]
-    if: success()
-    steps:
-      - run: echo "All parallel checks passed"
+      - name: pnpm run ci
+        run: pnpm run ci
