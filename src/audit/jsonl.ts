@@ -108,13 +108,8 @@ function redactValue(v: unknown, literals: readonly string[]): unknown {
 function scanLeak(v: unknown, literals: readonly string[]): string | null {
   if (typeof v === "string") return findLeak(v, literals);
   if (v === null || typeof v !== "object") return null;
-  if (Array.isArray(v)) {
-    for (const x of v) {
-      const hit = scanLeak(x, literals);
-      if (hit) return hit;
-    }
-    return null;
-  }
+  // Audit payloads are JSON-shaped; `Object.values` on Array matches index-ordered
+  // element traversal (same ordering the old Array.isArray branch used).
   for (const val of Object.values(v as Record<string, unknown>)) {
     const hit = scanLeak(val, literals);
     if (hit) return hit;

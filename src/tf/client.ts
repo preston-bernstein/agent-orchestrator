@@ -99,9 +99,8 @@ export class TfClient {
    * chance to leak traffic to a non-TF host.
    */
   resolve(pathOrUrl: string): URL {
-    const target = pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")
-      ? new URL(pathOrUrl)
-      : new URL(pathOrUrl, this.base);
+    // WHATWG URL: absolute URL inputs ignore `base` during parsing — one constructor suffices.
+    const target = new URL(pathOrUrl, this.base);
     if (target.host !== this.base.host) {
       throw new TfHostMismatchError(this.base.host, target.host);
     }
@@ -166,15 +165,18 @@ export class TfClient {
 }
 
 function extractModelIds(raw: unknown): string[] {
-  if (!raw || typeof raw !== "object") return [];
+  if (raw === null) return [];
+  // Stryker disable next-line ConditionalExpression: /v1/models JSON is always an object or null (RFC 8259); non-objects produce no `data` array to parse
+  if (typeof raw !== "object") return [];
   const data = (raw as { data?: unknown }).data;
   if (!Array.isArray(data)) return [];
   const ids: string[] = [];
   for (const entry of data) {
-    if (entry && typeof entry === "object") {
-      const id = (entry as { id?: unknown }).id;
-      if (typeof id === "string") ids.push(id);
-    }
+    if (entry == null) continue;
+    // Stryker disable next-line ConditionalExpression: entries are JSON values; only objects can carry an `id` field per probe schema
+    if (typeof entry !== "object") continue;
+    const id = (entry as { id?: unknown }).id;
+    if (typeof id === "string") ids.push(id);
   }
   return ids;
 }

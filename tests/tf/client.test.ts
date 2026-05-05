@@ -39,7 +39,7 @@ describe("TfClient hostname guard", () => {
     expect(client.resolve(`${BASE}/v1/foo`).toString()).toBe(`${BASE}/v1/foo`);
   });
 
-  it("must use startsWith (not endsWith) so https URL is treated as absolute (L102)", () => {
+  it("absolute https URL resolves same as single-argument WHATWG URL + base", () => {
     const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl: vi.fn() });
     const u = new URL(`${BASE}/v1/m`);
     expect(client.resolve(u.toString()).toString()).toBe(u.toString());

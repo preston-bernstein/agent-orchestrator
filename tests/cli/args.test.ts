@@ -117,4 +117,13 @@ describe("parseArgs (Phase 4 task 27 — CLI flags)", () => {
     expect(a.execute).toBe(true);
     expect(a.unknown).toEqual(["leftover"]);
   });
+
+  it("default branch does not push iterator holes (undefined slots)", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    const sparse: string[] = [];
+    sparse[1] = "--dry-plan";
+    const a = parseArgs(sparse);
+    expect(a.dryPlan).toBe(true);
+    expect(a.unknown).toEqual([]);
+  });
 });

@@ -110,3 +110,24 @@ Source: `reports/mutation/mutation.json` (29 × `Survived`). Class: **A** missin
 **`client.ts:102`:** two mutants Phase **B**; two `MethodExpression` `endsWith` mutants phase **A** (absolute-URL kill tests). Total four mutants at that line.
 
 **Next:** Review table → Phase 1 picks A+D first; reserve B for Phase 3/4 per working plan.
+
+## Phase 1 closeout (done)
+
+Mutation score **~95%** (`pnpm run mutation` after test-only batch). Survivors **14** — none on provably unreachable lines.
+
+## Phase 2 checkpoint (Class C)
+
+**0 excisions.** Mutate set (`stryker.conf.json`): grep + call graph — every remaining survivor sits on **reachable** branches (mostly **B** duplicate-path / WHATWG / `[]` truthiness, plus hard **A**). No `v8`/`coverage`-style proof of dead code that safely lifts out. `scanLeak` array block vs `Object.values` is **duplicate traversal** (Phase 3), not unreachable dead code; yanking it can change behavior for exotic array objects (non-JSON).
+
+**Next:** Phase 3 refactor or Phase 4 disables for **B** cluster; optional second pass on **A** (args `<=`, etc.).
+
+## Phase 3 closeout (done)
+
+- **`scanLeak`:** one `Object.values` pass (comment: JSON-shaped audit payloads).
+- **`TfClient.resolve`:** `new URL(pathOrUrl, this.base)` only (WHATWG: absolute `pathOrUrl` ignores base).
+- **`globMatch`:** removed `glob === declared` early return.
+- **`readEnvCap`:** `Number(process.env.…)` unified path (unset/`""`/`NaN`/`<=0` → default).
+- **`assemblePrompt`:** `if (input.toonSections?.length)` / `if (input.xmlBlobs?.length)`.
+- **`parseArgs`:** `argv[Symbol.iterator]()` + sparse-slot test (`a !== undefined`).
+- **`extractModelIds`:** split guards; two `// Stryker disable next-line ConditionalExpression` (RFC 8259 + probe schema).
+- **Result:** `pnpm run mutation` → **100%**, 0 survived (scoped files).

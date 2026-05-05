@@ -34,38 +34,47 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     dangerApply: false,
     unknown: [],
   };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
+  const it = argv[Symbol.iterator]();
+  let cur = it.next();
+  while (!cur.done) {
+    const a = cur.value;
     switch (a) {
       case "--dry-plan":
         out.dryPlan = true;
+        cur = it.next();
         break;
       case "--execute":
         out.execute = true;
+        cur = it.next();
         break;
       case "--danger-apply":
         out.dangerApply = true;
+        cur = it.next();
         break;
       case "--spec": {
-        const v = argv[i + 1];
+        const vNext = it.next();
+        const v = vNext.done ? undefined : vNext.value;
         if (!v || v.startsWith("--")) {
           throw new CliArgError("--spec requires a path arg");
         }
         out.spec = v;
-        i++;
+        cur = it.next();
         break;
       }
       case "--reason": {
-        const v = argv[i + 1];
+        const vNext = it.next();
+        const v = vNext.done ? undefined : vNext.value;
         if (!v || v.startsWith("--")) {
           throw new CliArgError("--reason requires a string arg");
         }
         out.reason = v;
-        i++;
+        cur = it.next();
         break;
       }
       default:
         if (a !== undefined) out.unknown.push(a);
+        cur = it.next();
+        break;
     }
   }
   if (process.env.ORCH_DRY_PLAN === "1") out.dryPlan = true;

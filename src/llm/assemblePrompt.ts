@@ -89,7 +89,6 @@ export function estimateTokens(text: string): number {
  * promote to `picomatch` w/ ADR.
  */
 export function globMatch(declared: string, glob: string): boolean {
-  if (glob === declared) return true;
   const segs = glob.split("/");
   const reSegs: string[] = [];
   for (const s of segs) {
@@ -120,9 +119,7 @@ function checkPathOwnership(
 }
 
 function readEnvCap(): number {
-  const env = process.env.ORCH_MAX_PROMPT_TOKENS;
-  if (!env) return DEFAULT_CAP;
-  const n = Number(env);
+  const n = Number(process.env.ORCH_MAX_PROMPT_TOKENS);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_CAP;
   return Math.floor(n);
 }
@@ -135,7 +132,7 @@ export function assemblePrompt(input: AssemblePromptInput): AssembledPrompt {
   const sections: string[] = [];
   if (input.caveman.trim()) sections.push(input.caveman.trim());
 
-  if (input.toonSections && input.toonSections.length > 0) {
+  if (input.toonSections?.length) {
     for (const s of input.toonSections) {
       sections.push(`### ${s.label}\n${s.body}`);
     }
@@ -145,7 +142,7 @@ export function assemblePrompt(input: AssemblePromptInput): AssembledPrompt {
   if (input.stackOverlay?.trim()) sections.push(input.stackOverlay.trim());
   if (input.taskContext?.trim()) sections.push(input.taskContext.trim());
 
-  if (input.xmlBlobs && input.xmlBlobs.length > 0) {
+  if (input.xmlBlobs?.length) {
     for (const b of input.xmlBlobs) {
       sections.push(`<${b.tag}>\n${b.body}\n</${b.tag}>`);
     }
