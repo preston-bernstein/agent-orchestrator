@@ -166,14 +166,14 @@ export class TfClient {
 
 function extractModelIds(raw: unknown): string[] {
   if (raw === null) return [];
-  // Stryker disable next-line ConditionalExpression: /v1/models JSON is always an object or null (RFC 8259); non-objects produce no `data` array to parse
+  // Stryker disable next-line ConditionalExpression: successful `Response.json()` is object or null; RFC 8259 value grammar leaves no observable `data` for non-objects
   if (typeof raw !== "object") return [];
   const data = (raw as { data?: unknown }).data;
   if (!Array.isArray(data)) return [];
   const ids: string[] = [];
   for (const entry of data) {
     if (entry == null) continue;
-    // Stryker disable next-line ConditionalExpression: entries are JSON values; only objects can carry an `id` field per probe schema
+    // Stryker disable next-line ConditionalExpression: `data[]` entries per RFC 8259 + list models shape — only JSON objects can own string `id`; primitives skip w/out test-killable delta
     if (typeof entry !== "object") continue;
     const id = (entry as { id?: unknown }).id;
     if (typeof id === "string") ids.push(id);

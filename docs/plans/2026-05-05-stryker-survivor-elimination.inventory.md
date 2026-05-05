@@ -131,3 +131,12 @@ Mutation score **~95%** (`pnpm run mutation` after test-only batch). Survivors *
 - **`parseArgs`:** `argv[Symbol.iterator]()` + sparse-slot test (`a !== undefined`).
 - **`extractModelIds`:** split guards; two `// Stryker disable next-line ConditionalExpression` (RFC 8259 + probe schema).
 - **Result:** `pnpm run mutation` → **100%**, 0 survived (scoped files).
+
+## Phase 4 checkpoint (proven-equiv disables)
+
+`src/tf/client.ts` `extractModelIds`: two `ConditionalExpression` disables — **RFC 8259** value grammar + OpenAI-style `{ data: [{ id }] }` (only objects carry `id`). No runtime branch change vs Phase 3 refactor.
+
+## Phase 5 checkpoint (re-baseline)
+
+- `pnpm run mutation` → **100.00%** (250 killed, 2 timeout, 0 survived) on `stryker.conf.json` mutate list.
+- `docs/specs/2026-05-04-orchestrator-bootstrap/tasks.md` task **15** close note updated w/ table.
