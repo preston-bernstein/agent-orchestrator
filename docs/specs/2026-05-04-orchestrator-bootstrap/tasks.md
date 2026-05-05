@@ -129,11 +129,11 @@ Per Playbook Phase 5: "**Inngest (optional):** if org uses Inngest+Mastra, land 
 
 ### I5 — Observability (both sinks)
 
-- [ ] 41. Mirror vault Examples ADR 0004 → `docs/decisions/2026-MM-DD-0004-observability-split.md`. _Vault Examples landed 2026-05-03._
+- [x] 41. Mirror vault Examples ADR 0004 → `docs/decisions/2026-MM-DD-0004-observability-split.md`. _Vault Examples landed 2026-05-03._ **Landed 2026-05-05 as orchestrator-local id 0003 (`docs/decisions/2026-05-05-0003-observability-split.md`); status `accepted`. Vault wikilinks rewritten to local cross-refs (vault ADR 0003 → orchestrator ADR 0002). Locks both-sinks contract + single-writer invariant + verifier CLI Inngest-independence ahead of I3 (orch-run.ts will route audit writes through `step.run('audit-*', ...)`). README I2 section already cites this contract; full §Observability split table lands at I3 README pass.**
 
 ### I6 — Self-host prod path (defer)
 
-- [ ] 42. Mirror vault Examples ADR 0005 → `docs/decisions/2026-MM-DD-0005-inngest-self-host-prod-target.md` (status `proposed`). _Vault Examples landed 2026-05-03._
+- [x] 42. Mirror vault Examples ADR 0005 → `docs/decisions/2026-MM-DD-0005-inngest-self-host-prod-target.md` (status `proposed`). _Vault Examples landed 2026-05-03._ **Landed 2026-05-05 as orchestrator-local id 0004 (`docs/decisions/2026-05-05-0004-inngest-self-host-prod-target.md`); status `proposed` (deferred). Vault wikilinks rewritten to local cross-refs (vault ADR 0003 → orchestrator 0002; vault ADR 0004 → orchestrator 0003). Promotion to `accepted` gated on: laptop I3 + I5 ticked end-to-end **AND** sha-aligned 37a re-run on prod-binary commit sha (full-execution-path job-run window — caveats from ADR 0002 Appendix A propagate). Sketch only — no infra change at this commit.**
 
 ### Inngest absorption (delete or thin existing hand-roll)
 
