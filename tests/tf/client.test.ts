@@ -38,6 +38,12 @@ describe("TfClient hostname guard", () => {
     const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl: vi.fn() });
     expect(client.resolve(`${BASE}/v1/foo`).toString()).toBe(`${BASE}/v1/foo`);
   });
+
+  it("must use startsWith (not endsWith) so https URL is treated as absolute (L102)", () => {
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl: vi.fn() });
+    const u = new URL(`${BASE}/v1/m`);
+    expect(client.resolve(u.toString()).toString()).toBe(u.toString());
+  });
 });
 
 describe("TfClient.request", () => {
@@ -80,6 +86,27 @@ describe("TfClient.request", () => {
     };
     const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
     await expect(client.request("/v1/models")).rejects.toBeInstanceOf(TfNetworkError);
+  });
+
+  it("when caller passes signal, fetch receives that same AbortSignal (kills L132 `??` → `&&`)", async () => {
+    const userAc = new AbortController();
+    let seen: AbortSignal | undefined;
+    const fetchImpl: FetchLike = async (_u, init) => {
+      seen = init?.signal ?? undefined;
+      return jsonResponse({ ok: true });
+    };
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    await client.request("/v1/models", { signal: userAc.signal });
+    expect(seen).toBe(userAc.signal);
+  });
+
+  it("clearTimeout runs after fast fetch completes (kills L136 empty finally)", async () => {
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+    const fetchImpl: FetchLike = async () => jsonResponse({ ok: true });
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl, timeoutMs: 10_000 });
+    await client.request("/v1/models");
+    expect(clearSpy).toHaveBeenCalled();
+    clearSpy.mockRestore();
   });
 });
 
@@ -168,5 +195,81 @@ describe("TfClient.probe", () => {
     const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
     const res = await client.probe();
     expect(res.models).toEqual(["valid-1"]);
+  });
+
+  it("probe maps null / non-object JSON bodies to empty models (kills L169 guard)", async () => {
+    for (const raw of [null, true, "hi", 42]) {
+      const fetchImpl: FetchLike = async () =>
+        new Response(JSON.stringify(raw), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+      const res = await client.probe();
+      expect(res.models).toEqual([]);
+    }
+  });
+
+  it("probe data array leading null still yields string ids (kills L174 `if` → always true)", async () => {
+    const fetchImpl: FetchLike = async () =>
+      jsonResponse({ data: [null, { id: "kept" }] });
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    const res = await client.probe();
+    expect(res.models).toEqual(["kept"]);
+  });
+
+  it("probe uses GET for /v1/models (kills L157 `{}` vs explicit method)", async () => {
+    let init: RequestInit | undefined;
+    const fetchImpl: FetchLike = async (_url, i) => {
+      init = i;
+      return jsonResponse({ data: [] });
+    };
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
+    await client.probe();
+    expect(init?.method).toBe("GET");
+  });
+});
+
+describe("TfClient.request — timeout (Stryker L126 / L132)", () => {
+  it("fires timeout → abort → TfNetworkError when fetch waits on signal", async () => {
+    const fetchImpl: FetchLike = (_u, init) =>
+      new Promise<Response>((_, reject) => {
+        const sig = init?.signal ?? undefined;
+        if (!sig) {
+          reject(new Error("expected AbortSignal"));
+          return;
+        }
+        sig.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      });
+
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl, timeoutMs: 15 });
+    await expect(client.request("/v1/models")).rejects.toBeInstanceOf(TfNetworkError);
+  });
+
+  it("no init.signal still wires timeout AbortSignal into fetch", async () => {
+    let seen: AbortSignal | undefined;
+    const fetchImpl: FetchLike = (_u, init) =>
+      new Promise<Response>((_, reject) => {
+        seen = init?.signal ?? undefined;
+        const sig = init?.signal;
+        if (!sig) {
+          reject(new Error("expected timeout AbortSignal"));
+          return;
+        }
+        sig.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      });
+
+    const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl, timeoutMs: 15 });
+    await expect(client.request("/v1/models")).rejects.toBeInstanceOf(TfNetworkError);
+    expect(seen).toBeDefined();
+    expect(seen?.aborted).toBe(true);
   });
 });

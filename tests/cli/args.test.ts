@@ -93,4 +93,28 @@ describe("parseArgs (Phase 4 task 27 — CLI flags)", () => {
     expect(a.unknown).toEqual(["--made-up", "--also-fake"]);
     expect(a.dryPlan).toBe(true);
   });
+
+  it("--reason without value throws (kills L60 guard)", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    expect(() => parseArgs(["--reason"])).toThrow(CliArgError);
+  });
+
+  it("--reason with flag-like value throws (kills L60 `startsWith(\"--\")`)", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    expect(() => parseArgs(["--reason", "--dry-plan"])).toThrow(CliArgError);
+    expect(() => parseArgs(["--reason", "--"])).toThrow(CliArgError);
+  });
+
+  it("--reason value may end with \"--\" (must not use endsWith mutant)", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    const a = parseArgs(["--reason", "ticket-42--"]);
+    expect(a.reason).toBe("ticket-42--");
+  });
+
+  it("loop visits each argv element exactly once for unknown flags (kills L37 `<=`)", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    const a = parseArgs(["--execute", "leftover"]);
+    expect(a.execute).toBe(true);
+    expect(a.unknown).toEqual(["leftover"]);
+  });
 });
