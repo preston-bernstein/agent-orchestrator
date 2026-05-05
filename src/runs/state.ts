@@ -18,6 +18,15 @@ import { randomBytes } from "node:crypto";
  * Strategy: write to sibling tmp file w/ unique suffix, fsync, then `rename`
  * onto target. POSIX rename = atomic on same filesystem; partial writes never
  * leave a torn target file readable by a concurrent resume attempt.
+ *
+ * **Scope (task 46 / Inngest absorption):** this writer is the durability path
+ * for the **local mock CLI only** (`src/cli/orchestrate.ts` + workflow tests).
+ * The Inngest path owns durability via `step.run('persist-*', …)` + replay
+ * safety via the TF idempotency cache (`src/tf/cache.ts`, task 40); resume is
+ * re-emit-event-with-same-id (task 45), not a tmp→rename roundtrip. Plan §I4
+ * forbids nested `inngest.send()` from inside Mastra subgraphs — the same
+ * single-writer constraint applies here: keep this writer outside `step.run`
+ * boundaries the Inngest function already manages.
  */
 export interface AtomicWriteOptions {
   /** absolute target path (e.g. runs/<id>/state.json) */

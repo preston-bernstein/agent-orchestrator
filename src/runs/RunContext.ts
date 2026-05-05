@@ -160,7 +160,8 @@ export const RunContext = z.object({
   // Decisions surfaced mid-run
   audit_decisions: z.array(AuditDecision),
 
-  // Resume support (edge 11)
+  // State snapshot (edge 11). Inngest path owns true resume via event re-emit
+  // w/ same id (task 45); state.json is a debug + local-mock-CLI artifact only.
   state_file_path: z.string(), // runs/<id>/state.json
   worktree_hash: z.string().optional(), // edge 44 — recorded after each gate
 });

@@ -137,10 +137,10 @@ Per Playbook Phase 5: "**Inngest (optional):** if org uses Inngest+Mastra, land 
 
 ### Inngest absorption (delete or thin existing hand-roll)
 
-- [ ] 43. Drop `p-limit` LLM concurrency cap; declare `concurrency` / `throttle` / `rateLimit` on `orch-run`.
-- [ ] 44. Drop per-repo `.agent-orchestrator.lock` (edge 40); replace w/ Inngest fn `concurrency: { key: 'event.data.runId+repo' }`.
-- [ ] 45. Drop `--resume <runId>` CLI flag (edge 11); resume = re-emit same event id.
-- [ ] 46. Mark deprecated `src/runs/state.ts` atomic writer outside non-Inngest local mock CLI path (edge 44).
+- [x] 43. Drop `p-limit` LLM concurrency cap; declare `concurrency` / `throttle` / `rateLimit` on `orch-run`. **Landed 2026-05-05: `pnpm remove p-limit` (zero src/test/script imports — leftover from pre-Inngest hand-roll). `concurrency: [{ key: 'event.data.runId', limit: 1 }]` already declared on `orch-run` at I3 (`src/inngest/functions/orch-run.ts:228`); replaces the dropped p-limit cap. `throttle` / `rateLimit` not yet set — no real-TF lane to govern (mastra agents stubbed at I3); declare them once stub flips + a real cap value is justified, not invented.**
+- [x] 44. Drop per-repo `.agent-orchestrator.lock` (edge 40); replace w/ Inngest fn `concurrency: { key: 'event.data.runId+repo' }`. **Landed 2026-05-05: zero refs to `.agent-orchestrator.lock` / `repoLock` in `src/` or `tests/` — the lockfile was vault canon never mirrored into this PoC repo. Per-runId serialization at orch-run (`concurrency.limit=1` per `event.data.runId`) covers the same exclusion property at the function boundary; `+repo` segmentation deferred until per-repo fan-out moves out of the single fn body (I3 keeps both supervisors inside one `orch-run` invocation). orch-run.ts:9 header comment already cites this absorption.**
+- [x] 45. Drop `--resume <runId>` CLI flag (edge 11); resume = re-emit same event id. **Landed 2026-05-05: zero refs to `--resume` in `src/cli/args.ts` or anywhere under `src/` / `tests/` — the flag was vault canon never wired into this PoC. `RunContext.state_file_path` comment retitled "Resume support (edge 11)" → "State snapshot (resume = re-emit event w/ same id, task 45)" so the schema cite matches the absorbed semantics.**
+- [x] 46. Mark deprecated `src/runs/state.ts` atomic writer outside non-Inngest local mock CLI path (edge 44). **Landed 2026-05-05: JSDoc banner on `atomicWriteJson` clarifies scope — local mock CLI + workflow tests only. Inngest path owns durability via `step.run('persist-*', …)` + replay safety via TF idempotency cache (task 40). Behavior unchanged; this is a documented-scope guardrail so future Inngest absorption doesn't accidentally route writes through this writer instead of `step.run` (which would re-introduce the very nested-scheduler problem Plan §I4 forbids).**
 
 ## Phase 10 — verification close (Playbook §Verification)
 

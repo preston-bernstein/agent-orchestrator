@@ -29,7 +29,6 @@
     "better-sqlite3": "^12.9.0",
     "hono": "^4.6.0",
     "inngest": "^3.27.0",
-    "p-limit": "^7.3.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
