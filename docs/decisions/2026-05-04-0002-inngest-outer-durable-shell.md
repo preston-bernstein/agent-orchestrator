@@ -14,7 +14,7 @@ tags: [decision, adr, inngest, mastra, durability, hitl, self-hosted]
 
 ## Status
 
-`accepted` (laptop PoC). **Caveated** for prod promotion until 37a manual half (tcpdump 3 windows) re-runs against the prod Inngest binary commit sha — see Appendix A.
+`accepted` — **laptop PoC fully GREEN** (37a manual half ran 2026-05-05 against `inngest dev` v1.19.1 build `dfcc1f544` — zero outbound across all 3 windows; see Appendix A). **Caveated for prod promotion** until source-grep + tcpdump align on a single prod-binary commit sha + full-execution-path job-run window (registered SDK function, not just ingest) is re-run.
 
 ## Context
 
@@ -106,22 +106,26 @@ Two scheduler primitives in same plan = footgun. Mastra `suspend()` mid-step wou
 
 ## Appendix A — outbound verification (37a)
 
-**Status (orchestrator):** **GREEN with caveat** (mirrored 2026-05-04 from vault verdict 2026-05-03 against commit `acbefdc7575e4f9529c69f13d1925c45320d07b3`).
+**Status (orchestrator):** **laptop-PoC GREEN** (2026-05-05) — both halves ran:
 
-- **Source-grep half:** ran in vault, verdict GREEN; mirrored verbatim below as orchestrator-local record. **Re-runnable** here via `bash scripts/verify-inngest-outbound.sh` (auto-clones inngest/inngest at HEAD, greps `cmd/`+`pkg/`+`internal/`).
-- **Manual tcpdump half:** **deferred** in vault, **deferred** here. **Owed before** any Inngest deployment outside the orchestrator laptop PoC + before ADR 0003-equivalent (self-host prod target) flips `proposed → accepted`.
-- **Caveat propagation:** any I3+ merge against this orchestrator inherits the deferred-tcpdump caveat. PR description must cite this ADR + 37a status.
+- **Source-grep half:** ran in vault 2026-05-03 against commit `acbefdc7575e4f9529c69f13d1925c45320d07b3`; verdict GREEN; mirrored verbatim below as orchestrator-local record. Re-runnable here via `bash scripts/verify-inngest-outbound.sh` (auto-clones inngest/inngest at HEAD; greps `cmd/`+`pkg/`+`internal/`).
+- **Manual tcpdump half:** ran in orchestrator 2026-05-05 against installed `inngest` v1.19.1 build sha `dfcc1f544` (3 windows × 5 min: boot-idle / steady-idle / job-run). **Zero outbound packets** across all 3 windows. Per-window evidence below.
+- **Sha-alignment caveat:** source-grep covered `acbefdc7`; tcpdump covered `dfcc1f544`. Code drift between shas is plausible (~1 day apart in vault timeline; longer in real time). Acceptable for laptop PoC; **prod promotion gate must re-grep at the prod-binary sha** before flipping any "self-host prod target" ADR `proposed → accepted`.
+- **Execution-path caveat:** job-run window exercised **ingest path + UI poll surface only** (5x "Send test event" via Inngest dev UI; no SDK function registered, so events ingested but never executed). Full per-job execution outbound surface owed at I3 (when `orch-run` Inngest fn registers).
+- **Caveat propagation:** any I3+ merge against this orchestrator still inherits the sha-alignment + execution-path caveats. PR description must cite this ADR + status.
 
 ### DoD checklist
 
-- [x] Source grep `inngest/inngest` server + CLI (not SDK) for `posthog|segment|mixpanel|sentry|amplitude|datadog|telemetry|analytics|api.inngest.com|inngest.cloud|phone.?home|usage.?metric`. **Triage below.** _Vault evidence; orchestrator re-run via `scripts/verify-inngest-outbound.sh` recommended on each Inngest server-version bump._
-- [ ] `tcpdump` / Little Snitch — 5-min boot-idle capture. _Owed; fill below when run._
-- [ ] 5-min steady-idle capture. _Owed._
-- [ ] 5-min job-run capture (curl-trigger an event during window). _Owed._
+- [x] Source grep `inngest/inngest` server + CLI (not SDK) for `posthog|segment|mixpanel|sentry|amplitude|datadog|telemetry|analytics|api.inngest.com|inngest.cloud|phone.?home|usage.?metric`. **Triage below.** _Vault evidence vs `acbefdc7`; orchestrator re-run via `scripts/verify-inngest-outbound.sh` recommended on each Inngest server-version bump._
+- [x] `tcpdump` — 5-min boot-idle capture. **0 packets matched filter** (`/tmp/inngest-37a-boot.pcap` 0B). Filter excluded localhost + `192.168.0.0/16` + multicast. Run 2026-05-05T00:49:08Z–00:54:08Z (kill mechanism wonky on this attempt — actual end ~00:57:22Z; second-attempt steady+run used clean `-G 300 -W 1` self-exit).
+- [x] 5-min steady-idle capture. **0 packets matched filter** (104,852 packets received-by-filter and excluded; 10,965 kernel drops — see "Buffer caveat" below). Run 2026-05-05T01:00:14Z–01:05:14Z.
+- [x] 5-min job-run capture (5x "Send test event" via Inngest dev UI + tab navigation during window). **0 packets matched filter** (71,060 received-by-filter excluded; **0 kernel drops** w/ `-B 4096`). Run 2026-05-05T01:12:53Z–01:17:53Z.
 - [x] Telemetry disable env vars: **none required** at default invocation. **Caveat:** do **not** set `--system-trace-endpoint` (or `OTEL_TRACES_COLLECTOR_ENDPOINT` env) to anything other than localhost. README + `.env.example` must document the opt-in flag must stay unset / localhost-bound.
-- [x] Server commit sha verified: `acbefdc7575e4f9529c69f13d1925c45320d07b3` (vault clone 2026-05-04T00:13:57Z UTC from `https://github.com/inngest/inngest.git`). _Re-verify against new sha each Inngest version bump._
-- [ ] Capture timestamps + destination list. _Owed (manual half)._
-- [x] **Verdict (laptop PoC): GREEN (caveated)** — I3+I4+I5+I6 unblocked for laptop PoC merge. Tcpdump windows owed before any deployment beyond laptop.
+- [x] Server commit sha verified — **two shas due to sha-alignment caveat above:**
+  - Source-grep evidence: `acbefdc7575e4f9529c69f13d1925c45320d07b3` (vault clone 2026-05-04T00:13:57Z UTC).
+  - Tcpdump evidence: `dfcc1f544` (installed `inngest` CLI v1.19.1 reported via `inngest version` 2026-05-05T00:45:52Z UTC).
+- [x] Capture timestamps + destination list. **Filled below.**
+- [x] **Verdict (laptop PoC): GREEN** — I3+I4+I5+I6 unblocked for laptop PoC merge. Sha-alignment + execution-path re-runs owed before prod promotion (see Status block above).
 
 ### Source-grep findings (commit `acbefdc7`, mirrored from vault)
 
@@ -143,37 +147,43 @@ Roots scanned: `cmd/`, `pkg/`, `internal/` (SDK explicitly excluded — separate
 - `--system-trace-endpoint` must remain unset (or pointed at localhost). Document as forbidden config in orchestrator README when I2 lands.
 - Sentry import could be removed upstream for cleanliness; not a 37a blocker.
 
-### Manual half — deferred (run before prod promotion)
+### Manual half — laptop PoC run (2026-05-05)
 
-**Status:** not yet run in orchestrator context. Source-grep evidence accepted as sufficient for laptop PoC unblock; tcpdump windows owed before ADR 0003-equivalent (self-host prod target) flips `proposed` → `accepted`.
+**Operator:** Preston (orchestrator dev box, macOS). **Inngest binary:** `inngest` CLI v1.19.1 build `dfcc1f544`, installed via npm/brew (whichever resolved first; orchestrator does not yet have its own Inngest install path — laptop-global is fine for 37a).
 
-**Re-verify when:** orchestrator I2 wiring landed + Inngest dev server running locally — easiest moment to run captures w/ minimal setup overhead. Latest acceptable: at prod promotion (orchestrator's eventual self-host prod target ADR), against the prod binary commit sha, not just laptop dev.
+**Setup:**
+- Single terminal: `cd /tmp && inngest dev 2>&1 | tee /tmp/inngest-dev.log`
+- Server bound `0.0.0.0:8288` (HTTP/UI) + `:50052` (gRPC connect-gateway). **Network-posture caveat:** `0.0.0.0` binding means LAN-reachable; prod must firewall or rebind to `127.0.0.1`. Not a phone-home issue but flagged for I2/I6 readme.
+- LAN block on this host: `192.168.1.149/24` (covered by `192.168.0.0/16` filter).
 
-**Sample commands (run when ready):**
+**Capture method:** macOS `tcpdump -i any -n -G 300 -W 1` (self-exits cleanly after one 5-min window; first attempt used `&` + `sudo kill` which raced — stuck sudo wrapper survived 8+ min until manual `kill -9`). For job-run, added `-B 4096` (4MB ringbuffer) — eliminated kernel drops.
+
+**Filter (single line):** `not src localhost and not dst localhost and not src 192.168.0.0/16 and not dst 192.168.0.0/16 and not src 224.0.0.0/4 and not dst 224.0.0.0/4 and not src ff00::/8 and not dst ff00::/8`
+
+**Sanity check (10-sec unfiltered):** captured 8937 packets / 8.7 MB / 0 kernel drops. Confirms tcpdump itself functional on this host; subsequent 0-byte filtered pcaps reflect filter exclusion, not tooling failure.
+
+**Per-window evidence:**
+
+| Window | Start (UTC) | End (UTC) | pcap | Captured | Filter-received (excluded) | Kernel drops | Distinct outbound destinations | Verdict |
+| ------ | ----------- | --------- | ---- | --------:| --------------------------:| ------------:| ------------------------------ | ------- |
+| boot-idle (5 min) | 2026-05-05T00:49:08Z | 2026-05-05T00:54:08Z (kill raced — process actually ended ~00:57:22Z) | `/tmp/inngest-37a-boot.pcap` (0B) | 0 | n/a (first capture; wonky kill — see method note) | n/a | **none** | GREEN |
+| steady-idle (5 min) | 2026-05-05T01:00:14Z | 2026-05-05T01:05:14Z | `/tmp/inngest-37a-steady.pcap` (0B) | 0 | 104,852 | 10,965 (small ringbuffer; raised to 4MB for job-run) | **none** | GREEN |
+| job-run (5 min, 5x "Send test event" + UI tab navigation) | 2026-05-05T01:12:53Z | 2026-05-05T01:17:53Z | `/tmp/inngest-37a-run.pcap` (0B) | 0 | 71,060 | **0** | **none** | GREEN |
+
+**Triage commands used (per pcap):**
 
 ```bash
-# Terminal 1 — Inngest dev server (after I2 lands)
-cd ~/dev/agent-orchestrator
-pnpm run inngest:serve &           # orchestrator handler at :3030/api/inngest
-pnpm run inngest:dev               # inngest-cli dev pointing at serve
-
-# Terminal 2 — capture (Little Snitch UI works equivalently)
-sudo tcpdump -i any -n 'not src localhost and not dst localhost and not src 192.168.0.0/16 and not dst 192.168.0.0/16' -w /tmp/inngest-37a-boot.pcap   # 5 min
-# steady-idle window (no requests)
-sudo tcpdump -i any -n 'not src localhost and not dst localhost and not src 192.168.0.0/16 and not dst 192.168.0.0/16' -w /tmp/inngest-37a-steady.pcap   # 5 min
-# trigger a run via curl, capture during
-curl -X POST http://127.0.0.1:8288/e/<event-key> -d '{"name":"orch/dry-plan.requested","data":{...}}'
-sudo tcpdump -i any -n 'not src localhost and not dst localhost and not src 192.168.0.0/16 and not dst 192.168.0.0/16' -w /tmp/inngest-37a-run.pcap     # 5 min
+sudo tcpdump -r /tmp/inngest-37a-<window>.pcap -nn 2>/dev/null | wc -l                                                # packet count
+sudo tcpdump -r /tmp/inngest-37a-<window>.pcap -nn 2>/dev/null | awk '{print $3, "->", $5}' | sed 's/\.[0-9]*$//' | sort -u   # distinct destinations
 ```
 
-**Per-window destination table (fill after run):**
+**Buffer caveat (steady-idle):** 10,965 packets dropped by kernel during the steady-idle 5-min window (default 2MB ringbuffer overflowed against ~350 pkt/s LAN+localhost firehose). **Drops are statistically all-LAN/localhost** (~100% of dev-machine traffic is LAN+localhost; tcpdump drops uniformly across received packets), but strict-rigor cannot prove zero drops were outbound. **Mitigated** in job-run window by `-B 4096` (4MB) → 0 drops. **Re-run pre-prod:** use `-B 4096` on all 3 windows for clean evidence.
 
-| Window | Start (UTC) | End (UTC) | pcap path | Distinct destinations | Verdict |
-| ------ | ----------- | --------- | --------- | --------------------- | ------- |
-| boot-idle (5 min) | _fill_ | _fill_ | _fill_ | _fill — expected: empty / 127.0.0.1 / LAN_ | _fill_ |
-| steady-idle (5 min) | _fill_ | _fill_ | _fill_ | _fill_ | _fill_ |
-| job-run (5 min) | _fill_ | _fill_ | _fill_ | _fill_ | _fill_ |
+**Aggregate verdict (laptop PoC): GREEN.** Zero outbound packets to non-localhost / non-LAN / non-multicast destinations across 15 minutes of `inngest dev` runtime spanning boot, idle, and ingest+UI activity. Inngest dev server makes no phone-home calls under default invocation.
 
-Anything outside `127.0.0.1` / LAN (`192.168.0.0/16` or whatever this host's LAN block is) / Postgres+Redis hosts → triage as blocker / disable / FP and update verdict.
+**Re-verify when:**
+- Inngest CLI version bump (re-run all 3 windows + source-grep at new sha).
+- Orchestrator I2 lands (`src/inngest/{client,serve}.ts` + own SDK app registers w/ dev server) — re-run **job-run window only** to exercise full per-job execution outbound surface (current job-run was ingest-path-only since no SDK fn registered).
+- Promotion to prod self-host (`inngest start` on internal LAN w/ Postgres + Redis) — full 3-window re-run against prod-binary sha; sha-alignment with source-grep mandatory at this gate.
 
-**Escalation:** if DoD (manual half) not met within 2 weeks of 37a start → decision recorded here (kill **or** narrow exception w/ egress firewall mitigation).
+**Escalation:** if any future re-run finds non-disable-able outbound → kill switch this ADR; supersede w/ "Inngest rejected; bare-Mastra hand-roll" ADR (zero new cost — bare-Mastra is the original plan).
