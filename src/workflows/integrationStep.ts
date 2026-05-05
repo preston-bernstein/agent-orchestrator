@@ -150,8 +150,3 @@ export async function runIntegrationStep(
 
   return { ran: true, output, contractAbsPath };
 }
-
-export {
-  ContractArtifactMissing as IntegrationContractArtifactMissing,
-  ContractFormatUnrecognized as IntegrationContractFormatUnrecognized,
-};

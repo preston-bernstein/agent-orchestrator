@@ -1,0 +1,52 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Tier T1+T2 gate: mutates most of src/ minus T3 entrypoints. Also excludes expectations.ts, RunContext.ts, scorecard/aggregate.ts until dedicated mutation work (they dominated no-cov + survived counts). break=70 on the remaining surface.",
+  "packageManager": "pnpm",
+  "testRunner": "vitest",
+  "vitest_comment": {
+    "configFile": "vitest.config.ts"
+  },
+  "checkers": ["typescript"],
+  "plugins": [
+    "@stryker-mutator/vitest-runner",
+    "@stryker-mutator/typescript-checker"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "mutate": [
+    "src/**/*.ts",
+    "!src/audit/verify.ts",
+    "!src/cli/orchestrate.ts",
+    "!src/inngest/**",
+    "!src/scorecard/index.ts",
+    "!src/scorecard/format.ts",
+    "!src/reviewer/index.ts",
+    "!src/runs/loadSpec.ts",
+    "!src/approval/index.ts",
+    "!src/stacks/types.ts",
+    "!src/llm/toonContext.ts",
+    "!src/config/expectations.ts",
+    "!src/runs/RunContext.ts",
+    "!src/scorecard/aggregate.ts"
+  ],
+  "mutator": {
+    "excludedMutations": ["StringLiteral"]
+  },
+  "coverageAnalysis": "perTest",
+  "reporters": ["progress", "clear-text", "html", "json"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/mutation-wide.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation-wide.json"
+  },
+  "thresholds": {
+    "high": 82,
+    "low": 73,
+    "break": 70
+  },
+  "timeoutMS": 120000,
+  "concurrency": 4,
+  "tempDirName": ".stryker-tmp-wide",
+  "cleanTempDir": true,
+  "incremental": false
+}

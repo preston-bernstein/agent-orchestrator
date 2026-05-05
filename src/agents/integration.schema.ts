@@ -19,7 +19,7 @@ import { z } from "zod";
  *   - `no_consumer`: consumer (React) `consumes_path` not set — `proceed`
  *     w/ rationale.
  */
-export const IntegrationStatus = z.enum([
+const IntegrationStatus = z.enum([
   "compatible",
   "breaking",
   "needs_regen",
@@ -27,7 +27,7 @@ export const IntegrationStatus = z.enum([
   "no_consumer",
 ]);
 
-export const IntegrationChange = z.object({
+const IntegrationChange = z.object({
   path: z.string(),
   method: z.string(),
   change: z.enum([
@@ -42,12 +42,12 @@ export const IntegrationChange = z.object({
   breaking: z.boolean(),
 });
 
-export const IntegrationDrift = z.object({
+const IntegrationDrift = z.object({
   file: z.string(),
   issue: z.string(),
 });
 
-export const IntegrationRecommended = z.enum([
+const IntegrationRecommended = z.enum([
   "proceed",
   "regenerate_ui_types",
   "block_merge",
@@ -63,5 +63,3 @@ export const IntegrationOutput = z.object({
   recommended_action: IntegrationRecommended,
 });
 export type IntegrationOutputT = z.infer<typeof IntegrationOutput>;
-export type IntegrationChangeT = z.infer<typeof IntegrationChange>;
-export type IntegrationDriftT = z.infer<typeof IntegrationDrift>;

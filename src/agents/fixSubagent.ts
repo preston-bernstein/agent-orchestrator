@@ -28,7 +28,7 @@ import {
  *    decides.
  */
 
-export const FIX_SUBAGENT_BASE_PROMPT = [
+const FIX_SUBAGENT_BASE_PROMPT = [
   "you are Fix-Subagent. one minimal diff. fix failing gate. do NOT rewrite.",
   "rationale must cite gate_log line. ≤200 chars.",
   "no `@ts-ignore`/`as any`/`// eslint-disable`/`@SuppressWarnings`. silencing != fixing.",

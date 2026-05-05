@@ -18,7 +18,7 @@ import { z } from "zod";
  *  - `budget_exhausted`: O3 cap hit; halt this branch only (other
  *    supervisors continue).
  */
-export const SupervisorStatus = z.enum([
+const SupervisorStatus = z.enum([
   "done",
   "fix_loop",
   "block_for_contract",
@@ -26,34 +26,34 @@ export const SupervisorStatus = z.enum([
   "budget_exhausted",
 ]);
 
-export const SupervisorTaskState = z.enum([
+const SupervisorTaskState = z.enum([
   "green",
   "red",
   "in_progress",
   "skipped",
 ]);
 
-export const SupervisorNextAction = z.enum([
+const SupervisorNextAction = z.enum([
   "hand_off_to_reviewer",
   "spawn_fix_subagent",
   "wait_for_contract",
   "halt",
 ]);
 
-export const SupervisorTaskResult = z.object({
+const SupervisorTaskResult = z.object({
   task_id: z.string(),
   state: SupervisorTaskState,
   fix_loop_count: z.number(),
   notes: z.string().max(120),
 });
 
-export const SupervisorFixTarget = z.object({
+const SupervisorFixTarget = z.object({
   task_id: z.string(),
   failing_gate: z.string(),
   log_excerpt: z.string().max(800),
 });
 
-export const SupervisorOutput = z.object({
+const SupervisorOutput = z.object({
   status: SupervisorStatus,
   rationale: z.string().max(200),
   pending_diff_path: z.string().optional(),

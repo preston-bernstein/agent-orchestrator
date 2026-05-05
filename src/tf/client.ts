@@ -89,10 +89,6 @@ export class TfClient {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  get baseHost(): string {
-    return this.base.host;
-  }
-
   /**
    * Resolve a path or absolute URL against the pinned base. Rejects if the
    * resulting hostname doesn't match `baseUrl.host` — caller never gets a

@@ -7,7 +7,7 @@ export const ZERO_HASH = "0".repeat(64);
 
 // ---------- Record schema ----------
 
-export const AuditRecord = z.object({
+const AuditRecord = z.object({
   run_id: z.string(),
   step: z.string(),
   agent: z.string(),
@@ -59,7 +59,7 @@ export function canonicalize(obj: unknown): string {
  * Regex patterns for catch-all secret shapes. Real boot also passes literal
  * secrets (e.g. `process.env.TF_API_KEY`) so they get scrubbed verbatim too.
  */
-export const SECRET_PATTERNS: readonly RegExp[] = [
+const SECRET_PATTERNS: readonly RegExp[] = [
   /Bearer\s+[A-Za-z0-9._\-]+/g,
   /sk-[A-Za-z0-9]{20,}/g,
 ];

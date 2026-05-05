@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/cli/orchestrate.ts",
+    "src/audit/verify.ts",
+    "src/inngest/serve.ts",
+    "src/scorecard/index.ts",
+    "src/reviewer/index.ts",
+    "src/approval/index.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.test.ts"
+  ],
+  "ignorePatterns": [
+    "fixtures/**",
+    "docs/**",
+    "stryker.conf.json",
+    "stryker.wide.conf.json"
+  ],
+  "ignoreDependencies": [
+    "@mastra/core",
+    "@stryker-mutator/typescript-checker",
+    "@stryker-mutator/vitest-runner"
+  ],
+  "usedClassMembers": ["currentPrevHash"],
+  "duplicates": {
+    "enabled": true,
+    "mode": "mild",
+    "threshold": 15
+  },
+  "health": {
+    "maxCognitive": 55,
+    "maxCyclomatic": 35,
+    "maxCrap": 120,
+    "ignore": [
+      "src/cli/orchestrate.ts",
+      "src/workflows/supervisorBranch.ts",
+      "src/agents/supervisor.ts",
+      "src/config/managedRepos.ts",
+      "src/scorecard/aggregate.ts",
+      "src/approval/index.ts",
+      "src/inngest/serve.ts",
+      "src/reviewer/index.ts",
+      "src/scorecard/index.ts",
+      "src/scorecard/format.ts",
+      "src/runs/loadSpec.ts",
+      "src/audit/verify.ts",
+      "src/workflows/integrationStep.ts"
+    ]
+  },
+  "rules": {
+    "unused-dependencies": "warn",
+    "unused-dev-dependencies": "warn",
+    "unused-class-members": "warn"
+  }
+}

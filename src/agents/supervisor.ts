@@ -54,13 +54,6 @@ export class CycleAbortError extends Error {
   }
 }
 
-export class PathOverlapRefusal extends Error {
-  constructor(public readonly a: string, public readonly b: string, public readonly path: string) {
-    super(`path overlap: ${a} vs ${b} on '${path}'`);
-    this.name = "PathOverlapRefusal";
-  }
-}
-
 export interface RunSupervisorInput {
   tasks: readonly PlannerTaskT[];
   ctx: OrchestratorContextT;

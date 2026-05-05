@@ -193,7 +193,7 @@ function parseRollupLines(auditPath: string, raw: string): RollupAccum {
  * Scenario A and Scenario D have identical audit shapes (single spring
  * supervisor, no contract); D requires the explicit tag.
  */
-export function inferScenario(acc: RollupAccum): ScenarioId {
+function inferScenario(acc: RollupAccum): ScenarioId {
   for (const tok of acc.decisionTokens) {
     const m = /^scenario=([A-E])$/.exec(tok);
     if (m && m[1]) return m[1] as ScenarioId;
@@ -220,7 +220,7 @@ export function inferScenario(acc: RollupAccum): ScenarioId {
  * Phase 8/9 — best-effort over current audit shape; scorecard surfaces this
  * for vault Demo Scorecard's "≥80% scenarios green" bar.
  */
-export function inferGreen(acc: RollupAccum, chainValid: boolean): boolean {
+function inferGreen(acc: RollupAccum, chainValid: boolean): boolean {
   if (!chainValid) return false;
   if (acc.hasSupervisorBlocked) return false;
   const skipped = (acc.counts_by_step.planner_skipped ?? 0) > 0;
@@ -236,7 +236,7 @@ export function inferGreen(acc: RollupAccum, chainValid: boolean): boolean {
  * additional invocation. Counted = `gate_invocation_count - supervisor_done_count`
  * (clamped at 0).
  */
-export function inferFixLoops(acc: RollupAccum): number {
+function inferFixLoops(acc: RollupAccum): number {
   const gates = acc.counts_by_step.gate_invocation ?? 0;
   const dones = acc.counts_by_step.supervisor_done ?? 0;
   return Math.max(0, gates - dones);

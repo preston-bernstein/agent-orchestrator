@@ -9,22 +9,22 @@ import { z } from "zod";
  * never on prose. `rationale` is human-debug only; ≤200 chars (no
  * chain-of-thought, per O8).
  */
-export const PlannerStatus = z.enum([
+const PlannerStatus = z.enum([
   "ready",
   "needs_human_clarify",
   "skipped_no_change_needed",
   "refused",
 ]);
 
-export const PlannerRepo = z.enum([
+const PlannerRepo = z.enum([
   "spring-api",
   "react-ui",
   "agent-orchestrator",
 ]);
 
-export const PlannerSupervisor = z.enum(["spring", "react", "orch"]);
+const PlannerSupervisor = z.enum(["spring", "react", "orch"]);
 
-export const PlannerTask = z.object({
+const PlannerTask = z.object({
   id: z.string(),
   spec_slug: z.string(),
   repo: PlannerRepo,

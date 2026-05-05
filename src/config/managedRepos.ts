@@ -35,7 +35,7 @@ import {
 export type RepoId = "spring-api" | "react-ui" | "agent-orchestrator";
 export type SupervisorId = "spring" | "react" | "orch";
 
-export const REPO_TO_SUPERVISOR: Readonly<Record<RepoId, SupervisorId>> = {
+const REPO_TO_SUPERVISOR: Readonly<Record<RepoId, SupervisorId>> = {
   "spring-api": "spring",
   "react-ui": "react",
   "agent-orchestrator": "orch",
@@ -57,7 +57,7 @@ export function repoIdForSupervisor(sup: SupervisorId): RepoId {
 
 // ---------- _meta.md schema ----------
 
-export const RepoMetaSchema = z.object({
+const RepoMetaSchema = z.object({
   stack: z.string(),
   package_manager: z.string().optional(),
   language_version: z.union([z.string(), z.number()]).optional(),

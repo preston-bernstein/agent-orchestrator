@@ -64,8 +64,6 @@ export const inngest = new Inngest({
   isDev: process.env.INNGEST_DEV === "1",
 });
 
-export type OrchEvents = typeof events;
-
 export const orchEventNames = Object.keys(events) as Array<keyof typeof events>;
 
 export const eventSchemas = events;

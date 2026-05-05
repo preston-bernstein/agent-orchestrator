@@ -6,7 +6,7 @@ import type { PlannerOutputT } from "../agents/planner.schema.js";
 import type { ReviewerFindingT, ReviewerOutputT } from "../reviewer/schema.js";
 import { diffChurnByFile } from "../reviewer/diffPaths.js";
 
-export const ApprovalPayloadSchema = z.object({
+const ApprovalPayloadSchema = z.object({
   run_id: z.string(),
   supervisor: z.string(),
   diff_hash: z.string(),

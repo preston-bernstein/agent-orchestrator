@@ -11,7 +11,7 @@ import { z } from "zod";
  * string (`''` when status ∈ {`no_change`, `refused`}). Supervisor merges
  * one task → one diff (no multi-patch returns).
  */
-export const SubagentStatus = z.enum([
+const SubagentStatus = z.enum([
   "patch",
   "no_change",
   "needs_more_context",

@@ -21,7 +21,7 @@ import {
  * keep tests offline. Real TF lands w/ Phase 5+ work in tasks 36–40.
  */
 
-export const SUBAGENT_BASE_PROMPT = [
+const SUBAGENT_BASE_PROMPT = [
   "you are Subagent. one task. one unified diff.",
   "no shell. no FS. no other agents. no `as any`/`@ts-ignore`/raw widen.",
   "files_touched ⊆ task.paths. else refuse `out of scope: <p>`.",
