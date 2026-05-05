@@ -16,11 +16,12 @@ import { serve as inngestServe } from "inngest/hono";
 import { Hono } from "hono";
 import { serve as nodeServe } from "@hono/node-server";
 import { inngest } from "./client.js";
+import { orchRun } from "./functions/orch-run.js";
 
-// I3 (task 38) will register `orchRun` here. Empty at I2 = handshake-only —
-// dev UI shows app registered, zero functions. Verifies serve route alive
-// without exposing any event handler.
-const functions: Parameters<typeof inngestServe>[0]["functions"] = [];
+// I3 (tasks 38/39): `orch-run` registered. Listens on
+// `orch/dry-plan.requested` + `orch/run.requested`; per-supervisor
+// `step.waitForEvent('orch/approve.<sup>')` between pre-approval + resume.
+const functions: Parameters<typeof inngestServe>[0]["functions"] = [orchRun];
 
 const app = new Hono();
 
