@@ -110,13 +110,13 @@ Per Playbook Phase 5: "**Inngest (optional):** if org uses Inngest+Mastra, land 
 
 ### I1 — ADR
 
-- [ ] 35. Mirror vault Examples ADR 0003 → `docs/decisions/2026-MM-DD-0003-inngest-outer-durable-shell.md`. _Landed in vault Examples 2026-05-03; orchestrator mirror at Phase 5 entry._
+- [x] 35. Mirror vault Examples ADR 0003 → `docs/decisions/2026-MM-DD-0003-inngest-outer-durable-shell.md`. _Landed in vault Examples 2026-05-03; orchestrator mirror at Phase 5 entry._ **Landed 2026-05-04 commit `7ee1563` as orchestrator-local id ADR 0002 (`docs/decisions/2026-05-04-0002-inngest-outer-durable-shell.md`); vault ADR id 0003 → orchestrator id 0002 — orchestrator ADR sequence local to repo. Status `accepted` (laptop PoC GREEN); prod-promotion caveat = source-grep + tcpdump re-run on prod-binary sha (Appendix A)).**
 
 ### I2 — Dev deps + serve + outbound verification (gate)
 
 - [ ] 36. Add `inngest` pkg + `src/inngest/{client,serve}.ts`. _Vault RepoKit starters landed 2026-05-03; orchestrator copy at Phase 5 entry._
 - [ ] 37. `.env.example` + `BootConfig` Inngest vars + README run-dev section. _Vault RepoKit starters landed 2026-05-03._
-- [ ] 37a. **Outbound verification gate** — DoD checklist (source grep + tcpdump 3 windows + telemetry-disable env vars + ADR appendix). _Vault verdict GREEN-caveated 2026-05-03 against server commit `acbefdc7`; tcpdump deferred to pre-prod. Re-run on prod binary before ADR 0005 promotion._
+- [x] 37a. **Outbound verification gate** — DoD checklist (source grep + tcpdump 3 windows + telemetry-disable env vars + ADR appendix). _Vault verdict GREEN-caveated 2026-05-03 against server commit `acbefdc7`; tcpdump deferred to pre-prod. Re-run on prod binary before ADR 0005 promotion._ **Laptop PoC fully GREEN 2026-05-04 commit `7ee1563`: source-grep half via `scripts/verify-inngest-outbound.sh` (vault evidence vs `acbefdc7`); tcpdump 3-window manual half ran 2026-05-05 vs installed `inngest` v1.19.1 build `dfcc1f544` — zero outbound across boot-idle / steady-idle / job-run windows (full evidence + caveats in ADR 0002 Appendix A). Sha-alignment + execution-path caveats propagate to I3+ PRs; prod-binary re-run still owed before flipping ADR 0005 → `accepted`.**
 
 ### I3 — First function
 
