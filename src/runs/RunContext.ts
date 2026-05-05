@@ -72,6 +72,11 @@ export const LlmCall = z.object({
   budget_remaining: z.number(), // O3
   response_id: z.string().optional(),
   structured: z.boolean(), // O1 — true if Zod-validated
+  // I4 (task 40): `${runId}:${agentName}:${promptHash}` — TF cache lookup key,
+  // also doubles as audit-readable replay marker. Optional: pre-I4 records
+  // (planner stub, mock-TF lanes) didn't compute it.
+  idempotency_key: z.string().optional(),
+  cache_hit: z.boolean().optional(), // true when tfCall short-circuited on replay
 });
 
 // ---------- Audit decision ----------
