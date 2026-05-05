@@ -9,6 +9,7 @@ tags: [decision, adr, index]
 | ADR  | Title | Status   | Date       | Supersedes | Superseded by | Notes |
 | ---- | ----- | -------- | ---------- | ---------- | ------------- | ----- |
 | 0001 | Phase 2 trigger evaluation — PoC mock pass + real-TF graduation gate | accepted | 2026-05-04 | — | — | Phase 9 closeout; O7 bars met on mock surface, real-TF graduation pending |
+| 0002 | Inngest = outer durable shell, Mastra = inner pure-fn | accepted (caveated) | 2026-05-04 | — | — | Mirrors vault Examples ADR 0003; 37a Appendix A source-grep GREEN, tcpdump deferred (owed pre-prod) |
 
 ## Conventions
 
