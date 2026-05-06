@@ -14,13 +14,13 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-export type CacheKey = {
+type CacheKey = {
   runId: string;
   agentName: string;
   promptHash: string;
 };
 
-export type CacheEntry = {
+type CacheEntry = {
   response: unknown;
   createdAt: string; // ISO 8601
 };

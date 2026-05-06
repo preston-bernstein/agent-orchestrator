@@ -13,7 +13,7 @@ import {
  * Pure function. Idempotent: caveman(caveman(x)) === caveman(x).
  */
 
-export interface CavemanInput {
+interface CavemanInput {
   text: string;
   /** soft cap; finalLen ≤ maxTokens * 4 chars (default 800 → ~3200 chars). */
   maxTokens?: number;
@@ -23,7 +23,7 @@ export interface CavemanInput {
   auditRef?: string;
 }
 
-export interface CavemanResult {
+interface CavemanResult {
   text: string;
   originalLen: number;
   finalLen: number;
@@ -75,7 +75,6 @@ function withInlineProtection(
     return `\u0000P${protectedTokens.length - 1}\u0000`;
   });
   const transformed = transform(masked);
-  // eslint-disable-next-line no-control-regex -- intentional NUL sentinel
   return transformed.replace(/\u0000P(\d+)\u0000/g, (_m, idx: string) => {
     const i = Number(idx);
     return protectedTokens[i] ?? "";
@@ -106,18 +105,27 @@ function classifyCompressLine(
   return { entry: { line: normalized, isProtected: false }, nextInFence: inFence };
 }
 
+function nextBlankRunState(
+  isProtected: boolean,
+  line: string,
+  blankRun: number,
+): { emit: boolean; blankRun: number } {
+  if (!isProtected && line === "") {
+    const next = blankRun + 1;
+    return { emit: next <= 1, blankRun: next };
+  }
+  return { emit: true, blankRun: 0 };
+}
+
 function collapseCompressedBlankRuns(
   processed: { line: string; isProtected: boolean }[],
 ): string[] {
   const out: string[] = [];
   let blankRun = 0;
   for (const { line, isProtected } of processed) {
-    if (!isProtected && line === "") {
-      blankRun++;
-      if (blankRun > 1) continue;
-    } else {
-      blankRun = 0;
-    }
+    const step = nextBlankRunState(isProtected, line, blankRun);
+    blankRun = step.blankRun;
+    if (!step.emit) continue;
     out.push(line);
   }
   return out;

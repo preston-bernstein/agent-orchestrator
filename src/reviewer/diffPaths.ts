@@ -2,21 +2,26 @@
  * Minimal unified-diff helpers for deterministic reviewer + approval formatter.
  */
 
+function repoPathFromPlusPlusLine(line: string): string | null {
+  const m = /^\+\+\+ ([^\t]+)/.exec(line);
+  if (!m) return null;
+  let p = m[1]?.trim() ?? "";
+  if (p === "/dev/null") return null;
+  if (p.startsWith("b/")) p = p.slice(2);
+  return p || null;
+}
+
 /** Repo-relative paths touched (`+++ b/<path>`); skips `/dev/null`. */
 export function listUnifiedDiffRepoPaths(diffText: string): string[] {
   const paths = new Set<string>();
   for (const line of diffText.split(/\r?\n/)) {
-    const m = /^\+\+\+ ([^\t]+)/.exec(line);
-    if (!m) continue;
-    let p = m[1]?.trim() ?? "";
-    if (p === "/dev/null") continue;
-    if (p.startsWith("b/")) p = p.slice(2);
+    const p = repoPathFromPlusPlusLine(line);
     if (p) paths.add(p);
   }
   return [...paths];
 }
 
-export interface DiffFileChurn {
+interface DiffFileChurn {
   file: string;
   plus: number;
   minus: number;

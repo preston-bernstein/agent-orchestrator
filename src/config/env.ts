@@ -14,7 +14,7 @@ const envSchema = z.object({
   INNGEST_BASE_URL: z.string().url().optional(),
 });
 
-export type BootConfig = z.infer<typeof envSchema> & {
+type BootConfig = z.infer<typeof envSchema> & {
   strictExpectations: boolean;
   skipTfProbe: boolean;
   inngestDev: boolean;

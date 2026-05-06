@@ -30,7 +30,7 @@ const SUBAGENT_BASE_PROMPT = [
   "rationale ≤200 chars. no chain-of-thought.",
 ].join("\n");
 
-export interface RunSubagentInput {
+interface RunSubagentInput {
   task: PlannerTaskT;
   /** Stack overlay appended at runtime (overlay text, not just profile). */
   stackOverlay?: string;
@@ -46,7 +46,7 @@ export interface RunSubagentInput {
   ownerKey?: string;
 }
 
-export interface RunSubagentDeps {
+interface RunSubagentDeps {
   /** Send assembled prompt to TF; returns Zod-shaped SubagentOutput-like. */
   completion: (prompt: AssembledPrompt) => Promise<unknown>;
 }

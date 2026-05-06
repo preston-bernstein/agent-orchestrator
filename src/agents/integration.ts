@@ -49,7 +49,7 @@ export class ContractFormatUnrecognized extends Error {
   }
 }
 
-export interface RunIntegrationInput {
+interface RunIntegrationInput {
   /** Absolute path to contract artifact (e.g. spring cwd + target/openapi.json). */
   contractPath?: string;
   /** Prior green-run contract hash (sha256 hex), or null if first run. */
@@ -63,13 +63,24 @@ export interface RunIntegrationInput {
   consumerPaths?: readonly string[];
 }
 
-export interface RunIntegrationDeps {
+interface RunIntegrationDeps {
   /** Injection seam: file reader (tests). */
   readContract?: (absPath: string) => Promise<string>;
 }
 
 async function defaultReadContract(absPath: string): Promise<string> {
   return readFile(absPath, "utf8");
+}
+
+async function readContractOrThrow(
+  contractPath: string,
+  reader: (absPath: string) => Promise<string>,
+): Promise<string> {
+  try {
+    return await reader(contractPath);
+  } catch {
+    throw new ContractArtifactMissing(contractPath);
+  }
 }
 
 /**
@@ -105,25 +116,82 @@ export function hashContract(raw: string, ext: string): string {
  *      - Else ⇒ `breaking` block_merge — Phase 7 LLM enrichment classifies
  *        additive vs subtractive; MVP errs on the safe side (block).
  */
+function integrationNoConsumerOutput(): IntegrationOutputT {
+  return finalize({
+    status: "no_consumer",
+    rationale: "no cross-repo contract: consumer task did not declare consumes_contract",
+    contract_hash: "",
+    recommended_action: "proceed",
+  });
+}
+
+function integrationNoContractOutput(): IntegrationOutputT {
+  return finalize({
+    status: "no_contract",
+    rationale: "no cross-repo contract: producer task did not declare contract_artifact",
+    contract_hash: "",
+    recommended_action: "proceed",
+  });
+}
+
+function integrationCompatibleUnchanged(hash: string): IntegrationOutputT {
+  return finalize({
+    status: "compatible",
+    rationale: "contract hash unchanged vs prior green run",
+    contract_hash: hash,
+    recommended_action: "proceed",
+  });
+}
+
+function integrationCompatibleFirstPublish(hash: string): IntegrationOutputT {
+  return finalize({
+    status: "compatible",
+    rationale: "first contract publish; no prior hash to diff",
+    contract_hash: hash,
+    recommended_action: "proceed",
+  });
+}
+
+function integrationBreakingChange(
+  hash: string,
+  consumerPaths: readonly string[] | undefined,
+): IntegrationOutputT {
+  return finalize({
+    status: "breaking",
+    rationale:
+      "contract hash changed; deterministic diff classifier defers to LLM (Phase 7); blocking pending review",
+    contract_hash: hash,
+    ui_drift: (consumerPaths ?? []).map((file) => ({
+      file,
+      issue: "consumer may reference changed contract endpoint(s)",
+    })),
+    recommended_action: "block_merge",
+  });
+}
+
+function classifyHashVersusPrior(
+  hash: string,
+  priorContractHash: string | null,
+  consumerPaths: readonly string[] | undefined,
+): IntegrationOutputT {
+  if (priorContractHash !== null && priorContractHash === hash) {
+    return integrationCompatibleUnchanged(hash);
+  }
+  if (priorContractHash === null) {
+    return integrationCompatibleFirstPublish(hash);
+  }
+  return integrationBreakingChange(hash, consumerPaths);
+}
+
 export async function runIntegration(
   input: RunIntegrationInput,
   deps: RunIntegrationDeps = {},
 ): Promise<IntegrationOutputT> {
   if (!input.hasConsumer) {
-    return finalize({
-      status: "no_consumer",
-      rationale: "no cross-repo contract: consumer task did not declare consumes_contract",
-      contract_hash: "",
-      recommended_action: "proceed",
-    });
+    return integrationNoConsumerOutput();
   }
   if (!input.contractPath) {
-    return finalize({
-      status: "no_contract",
-      rationale: "no cross-repo contract: producer task did not declare contract_artifact",
-      contract_hash: "",
-      recommended_action: "proceed",
-    });
+    return integrationNoContractOutput();
   }
 
   const ext = path.extname(input.contractPath).toLowerCase();
@@ -132,44 +200,10 @@ export async function runIntegration(
   }
 
   const reader = deps.readContract ?? defaultReadContract;
-  let raw: string;
-  try {
-    raw = await reader(input.contractPath);
-  } catch {
-    throw new ContractArtifactMissing(input.contractPath);
-  }
-
+  const raw = await readContractOrThrow(input.contractPath, reader);
   const hash = hashContract(raw, ext);
 
-  if (input.priorContractHash !== null && input.priorContractHash === hash) {
-    return finalize({
-      status: "compatible",
-      rationale: "contract hash unchanged vs prior green run",
-      contract_hash: hash,
-      recommended_action: "proceed",
-    });
-  }
-
-  if (input.priorContractHash === null) {
-    return finalize({
-      status: "compatible",
-      rationale: "first contract publish; no prior hash to diff",
-      contract_hash: hash,
-      recommended_action: "proceed",
-    });
-  }
-
-  return finalize({
-    status: "breaking",
-    rationale:
-      "contract hash changed; deterministic diff classifier defers to LLM (Phase 7); blocking pending review",
-    contract_hash: hash,
-    ui_drift: (input.consumerPaths ?? []).map((file) => ({
-      file,
-      issue: "consumer may reference changed contract endpoint(s)",
-    })),
-    recommended_action: "block_merge",
-  });
+  return classifyHashVersusPrior(hash, input.priorContractHash, input.consumerPaths);
 }
 
 interface PartialOutput {

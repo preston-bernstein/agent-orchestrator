@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
  * event upstream (workflow caller appends).
  */
 
-export interface PlannerDryRunSpec {
+interface PlannerDryRunSpec {
   slug: string;
   tasks_path: string;
   /** repo path for `git status` cwd. */
@@ -33,7 +33,7 @@ export interface PlannerDryRunInput {
   readTasks?: (path: string) => Promise<string>;
 }
 
-export interface PlannerDryRunResult {
+interface PlannerDryRunResult {
   skip: boolean;
   reason: string;
 }
@@ -64,25 +64,34 @@ async function defaultReadTasks(p: string): Promise<string> {
   return readFile(p, "utf8");
 }
 
+async function plannerDryRunOneSpec(
+  spec: PlannerDryRunSpec,
+  readTasks: NonNullable<PlannerDryRunInput["readTasks"]>,
+): Promise<PlannerDryRunResult | null> {
+  let raw: string;
+  try {
+    raw = await readTasks(spec.tasks_path);
+  } catch {
+    return { skip: false, reason: `tasks.md missing: ${spec.slug}` };
+  }
+  const boxes = parseCheckboxes(raw);
+  if (boxes.length === 0) {
+    return { skip: false, reason: `no tasks parsed: ${spec.slug}` };
+  }
+  const open = boxes.filter((b) => !b.done);
+  if (open.length > 0) {
+    return { skip: false, reason: `open tasks: ${spec.slug}` };
+  }
+  return null;
+}
+
 async function plannerSpecsAllComplete(
   specs: readonly PlannerDryRunSpec[],
   readTasks: NonNullable<PlannerDryRunInput["readTasks"]>,
 ): Promise<PlannerDryRunResult | null> {
   for (const spec of specs) {
-    let raw: string;
-    try {
-      raw = await readTasks(spec.tasks_path);
-    } catch {
-      return { skip: false, reason: `tasks.md missing: ${spec.slug}` };
-    }
-    const boxes = parseCheckboxes(raw);
-    if (boxes.length === 0) {
-      return { skip: false, reason: `no tasks parsed: ${spec.slug}` };
-    }
-    const open = boxes.filter((b) => !b.done);
-    if (open.length > 0) {
-      return { skip: false, reason: `open tasks: ${spec.slug}` };
-    }
+    const hit = await plannerDryRunOneSpec(spec, readTasks);
+    if (hit) return hit;
   }
   return null;
 }

@@ -50,18 +50,21 @@ function verifyChainRecord(
   return { ok: true, nextPrev: rec.hash };
 }
 
-export function verifyChain(path: string): VerifyResult {
-  let raw: string;
+function readChainLinesOrErr(filePath: string): VerifyResult | { lines: string[] } {
   try {
-    raw = readFileSync(path, "utf8");
+    const raw = readFileSync(filePath, "utf8");
+    const lines = raw.split("\n").filter((l) => l.length > 0);
+    return { lines };
   } catch (e) {
     return {
       valid: false,
       brokenAt: -1,
-      reason: `cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`,
+      reason: `cannot read ${filePath}: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
-  const lines = raw.split("\n").filter((l) => l.length > 0);
+}
+
+function verifyChainLines(lines: readonly string[]): VerifyResult {
   let prev = ZERO_HASH;
   for (let i = 0; i < lines.length; i++) {
     const step = verifyChainRecord(lines[i] as string, i, prev);
@@ -69,6 +72,12 @@ export function verifyChain(path: string): VerifyResult {
     prev = step.nextPrev;
   }
   return { valid: true, count: lines.length };
+}
+
+export function verifyChain(path: string): VerifyResult {
+  const read = readChainLinesOrErr(path);
+  if ("lines" in read) return verifyChainLines(read.lines);
+  return read;
 }
 
 // ---------- CLI ----------

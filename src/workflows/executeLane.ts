@@ -58,7 +58,7 @@ export class MissingManagedRepoError extends Error {
   }
 }
 
-export interface RunExecuteLaneInput {
+interface RunExecuteLaneInput {
   ctx: OrchestratorContextT;
   plan: PlannerOutputT;
   repos: ManagedRepoMap;
@@ -73,7 +73,7 @@ export interface RunExecuteLaneInput {
   priorContractHash?: string | null;
 }
 
-export interface RunExecuteLaneDeps {
+interface RunExecuteLaneDeps {
   subagentCompletion: (prompt: AssembledPrompt) => Promise<unknown>;
   fixSubagentCompletion: (prompt: AssembledPrompt) => Promise<unknown>;
   exec?: RunQualityDeps["exec"];
@@ -92,7 +92,7 @@ export type Phase7Outcome =
     }
   | { kind: "cleared"; reviewer: ReviewerOutputT };
 
-export interface RunExecuteLaneResult extends SupervisorBranchResult {
+interface RunExecuteLaneResult extends SupervisorBranchResult {
   integration: IntegrationStepResult;
   phase7: Phase7Outcome;
 }
@@ -255,34 +255,47 @@ async function executeLanePhase7WhenGreen(
   };
 }
 
-export async function runExecuteLane(
+function executeLaneWhenAggregateNotGreen(
+  result: SupervisorBranchResult,
+  integration: IntegrationStepResult,
+): RunExecuteLaneResult {
+  return {
+    ...result,
+    integration,
+    phase7: { kind: "skipped", reason: "aggregate_not_green" },
+  };
+}
+
+async function executeLaneAfterIntegration(
   input: RunExecuteLaneInput,
-  deps: RunExecuteLaneDeps,
+  auditWriter: AuditWriter,
+  result: SupervisorBranchResult,
+  integration: IntegrationStepResult,
+  flags: Record<string, unknown>,
 ): Promise<RunExecuteLaneResult> {
-  supervisorSpawnGuard(input.ctx.cli_flags);
+  const runDirResolved = input.runDir ?? path.dirname(input.ctx.state_file_path);
 
-  const planned = plannedSupervisorIds(input.plan);
-  validatePlannedRepos(planned, input.repos);
-
-  const cwds = cwdsFromManagedRepos(input.repos);
-  const stackOverlays: Record<string, string> = {};
-
-  // Phase 6 — single AuditWriter shared between supervisor + integration so
-  // the chain stays linear (else prev_hash forks across writers).
-  const auditWriter = new AuditWriter({
-    path: input.ctx.audit_path,
-    prevHash: input.ctx.prev_hash,
-  });
-
-  const flags = input.ctx.cli_flags as Record<string, unknown>;
-  if (flags.danger_apply === true) {
-    auditHitlEscalation(auditWriter, input.ctx.run_id, {
-      signal: { kind: "danger_apply" },
-      danger_reason:
-        typeof flags.reason === "string" ? flags.reason : undefined,
-    });
+  if (result.aggregateStatus !== "green") {
+    return executeLaneWhenAggregateNotGreen(result, integration);
   }
 
+  return executeLanePhase7WhenGreen(
+    input,
+    auditWriter,
+    result,
+    integration,
+    runDirResolved,
+    flags,
+  );
+}
+
+async function runSupervisorBranchAndIntegration(
+  input: RunExecuteLaneInput,
+  deps: RunExecuteLaneDeps,
+  cwds: ReturnType<typeof cwdsFromManagedRepos>,
+  auditWriter: AuditWriter,
+): Promise<{ result: SupervisorBranchResult; integration: IntegrationStepResult }> {
+  const stackOverlays: Record<string, string> = {};
   const result = await runSupervisorBranch(
     {
       ctx: input.ctx,
@@ -312,22 +325,42 @@ export async function runExecuteLane(
     deps.readContract ? { readContract: deps.readContract } : {},
   );
 
-  const runDirResolved = input.runDir ?? path.dirname(input.ctx.state_file_path);
+  return { result, integration };
+}
 
-  if (result.aggregateStatus !== "green") {
-    return {
-      ...result,
-      integration,
-      phase7: { kind: "skipped", reason: "aggregate_not_green" },
-    };
+export async function runExecuteLane(
+  input: RunExecuteLaneInput,
+  deps: RunExecuteLaneDeps,
+): Promise<RunExecuteLaneResult> {
+  supervisorSpawnGuard(input.ctx.cli_flags);
+
+  const planned = plannedSupervisorIds(input.plan);
+  validatePlannedRepos(planned, input.repos);
+
+  const cwds = cwdsFromManagedRepos(input.repos);
+
+  // Phase 6 — single AuditWriter shared between supervisor + integration so
+  // the chain stays linear (else prev_hash forks across writers).
+  const auditWriter = new AuditWriter({
+    path: input.ctx.audit_path,
+    prevHash: input.ctx.prev_hash,
+  });
+
+  const flags = input.ctx.cli_flags as Record<string, unknown>;
+  if (flags.danger_apply === true) {
+    auditHitlEscalation(auditWriter, input.ctx.run_id, {
+      signal: { kind: "danger_apply" },
+      danger_reason:
+        typeof flags.reason === "string" ? flags.reason : undefined,
+    });
   }
 
-  return executeLanePhase7WhenGreen(
+  const { result, integration } = await runSupervisorBranchAndIntegration(
     input,
+    deps,
+    cwds,
     auditWriter,
-    result,
-    integration,
-    runDirResolved,
-    flags,
   );
+
+  return executeLaneAfterIntegration(input, auditWriter, result, integration, flags);
 }

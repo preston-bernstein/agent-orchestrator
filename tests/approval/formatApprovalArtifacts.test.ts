@@ -17,13 +17,28 @@ function mkPlan(tasks: PlannerOutputT["tasks"]): PlannerOutputT {
   };
 }
 
+function reviewerPass(
+  gate: { fast: string; heavy: string } = { fast: "pass", heavy: "skipped" },
+) {
+  return ReviewerOutput.parse({
+    status: "pass",
+    rationale: "ok",
+    findings: [],
+    gate_summary: gate,
+  });
+}
+
+function mkdirTmp() {
+  mkdirSync(tmp, { recursive: true });
+}
+
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("approval/formatApprovalArtifacts", () => {
   it("writes md + json w/ diff_hash", () => {
-    mkdirSync(tmp, { recursive: true });
+    mkdirTmp();
     const plan = mkPlan([
       {
         id: "spring-T1",
@@ -35,12 +50,7 @@ describe("approval/formatApprovalArtifacts", () => {
         depends_on: [],
       },
     ]);
-    const reviewer = ReviewerOutput.parse({
-      status: "pass",
-      rationale: "ok",
-      findings: [],
-      gate_summary: { fast: "pass", heavy: "skipped" },
-    });
+    const reviewer = reviewerPass();
     const diffText = [
       "diff --git a/src/A.java b/src/A.java\n",
       "+++ b/src/A.java\n",
@@ -64,7 +74,7 @@ describe("approval/formatApprovalArtifacts", () => {
   });
 
   it("aggregates +/- churn across multiple files (md diff stat line)", () => {
-    mkdirSync(tmp, { recursive: true });
+    mkdirTmp();
     const plan = mkPlan([
       {
         id: "spring-T1",
@@ -76,12 +86,7 @@ describe("approval/formatApprovalArtifacts", () => {
         depends_on: [],
       },
     ]);
-    const reviewer = ReviewerOutput.parse({
-      status: "pass",
-      rationale: "ok",
-      findings: [],
-      gate_summary: { fast: "pass", heavy: "skipped" },
-    });
+    const reviewer = reviewerPass();
     const diffText = [
       "diff --git a/src/A.java b/src/A.java\n",
       "+++ b/src/A.java\n",
@@ -105,7 +110,7 @@ describe("approval/formatApprovalArtifacts", () => {
   });
 
   it("omits integration_note in payload when not passed; md uses n/a line", () => {
-    mkdirSync(tmp, { recursive: true });
+    mkdirTmp();
     const plan = mkPlan([
       {
         id: "spring-T1",
@@ -117,12 +122,7 @@ describe("approval/formatApprovalArtifacts", () => {
         depends_on: [],
       },
     ]);
-    const reviewer = ReviewerOutput.parse({
-      status: "pass",
-      rationale: "ok",
-      findings: [],
-      gate_summary: { fast: "pass", heavy: "skipped" },
-    });
+    const reviewer = reviewerPass();
     const { jsonPath, payload } = formatApprovalArtifacts({
       runId: "run-2",
       runDir: tmp,
@@ -138,7 +138,7 @@ describe("approval/formatApprovalArtifacts", () => {
   });
 
   it("filters + sorts findings: in-diff only; error before warning; file order", () => {
-    mkdirSync(tmp, { recursive: true });
+    mkdirTmp();
     const plan = mkPlan([
       {
         id: "spring-T1",
@@ -205,7 +205,7 @@ describe("approval/formatApprovalArtifacts", () => {
   });
 
   it("dedupes spec_slugs and only lists tasks for this supervisor", () => {
-    mkdirSync(tmp, { recursive: true });
+    mkdirTmp();
     const plan = mkPlan([
       {
         id: "a1",
@@ -235,12 +235,7 @@ describe("approval/formatApprovalArtifacts", () => {
         depends_on: [],
       },
     ]);
-    const reviewer = ReviewerOutput.parse({
-      status: "pass",
-      rationale: "ok",
-      findings: [],
-      gate_summary: { fast: "pass", heavy: "skipped" },
-    });
+    const reviewer = reviewerPass();
     const { payload, mdPath } = formatApprovalArtifacts({
       runId: "run-4",
       runDir: tmp,
@@ -257,14 +252,9 @@ describe("approval/formatApprovalArtifacts", () => {
   });
 
   it("(no tasks) renders placeholder and unknown spec in header", () => {
-    mkdirSync(tmp, { recursive: true });
+    mkdirTmp();
     const plan = mkPlan([]);
-    const reviewer = ReviewerOutput.parse({
-      status: "pass",
-      rationale: "ok",
-      findings: [],
-      gate_summary: { fast: "skipped", heavy: "skipped" },
-    });
+    const reviewer = reviewerPass({ fast: "skipped", heavy: "skipped" });
     const mdPath = formatApprovalArtifacts({
       runId: "run-5",
       runDir: tmp,
@@ -279,7 +269,7 @@ describe("approval/formatApprovalArtifacts", () => {
   });
 
   it("top churn table caps at 20 rows and adds ellipsis hint when more files", () => {
-    mkdirSync(tmp, { recursive: true });
+    mkdirTmp();
     const plan = mkPlan([
       {
         id: "t",
@@ -291,12 +281,7 @@ describe("approval/formatApprovalArtifacts", () => {
         depends_on: [],
       },
     ]);
-    const reviewer = ReviewerOutput.parse({
-      status: "pass",
-      rationale: "ok",
-      findings: [],
-      gate_summary: { fast: "pass", heavy: "skipped" },
-    });
+    const reviewer = reviewerPass();
     const parts: string[] = [];
     for (let i = 0; i < 25; i++) {
       const f = `src/F${i}.java`;
@@ -317,7 +302,7 @@ describe("approval/formatApprovalArtifacts", () => {
   });
 
   it("How to respond lists inspect path w/ pending.diff", () => {
-    mkdirSync(tmp, { recursive: true });
+    mkdirTmp();
     const plan = mkPlan([
       {
         id: "t",
@@ -329,12 +314,7 @@ describe("approval/formatApprovalArtifacts", () => {
         depends_on: [],
       },
     ]);
-    const reviewer = ReviewerOutput.parse({
-      status: "pass",
-      rationale: "ok",
-      findings: [],
-      gate_summary: { fast: "pass", heavy: "skipped" },
-    });
+    const reviewer = reviewerPass();
     const mdPath = formatApprovalArtifacts({
       runId: "run-7",
       runDir: tmp,

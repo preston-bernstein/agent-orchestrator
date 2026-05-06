@@ -143,7 +143,7 @@ export type OrchStep = {
   ): Promise<{ name: string; data: unknown }>;
 };
 
-export type OrchRunResult =
+type OrchRunResult =
   | { status: "skipped_no_change_needed"; reason: string }
   | { status: "dry_plan_done"; planPath: string }
   | { status: "green" };

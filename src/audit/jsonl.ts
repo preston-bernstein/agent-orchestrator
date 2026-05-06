@@ -26,32 +26,12 @@ const _AuditRecordSchema = z.object({
 });
 export type AuditRecordT = z.infer<typeof _AuditRecordSchema>;
 
-export type AuditRecordInput = Omit<AuditRecordT, "prev_hash" | "hash">;
+type AuditRecordInput = Omit<AuditRecordT, "prev_hash" | "hash">;
 
 // ---------- Canonical JSON ----------
 
-/**
- * Recursive sort-keys + minimal whitespace JSON, byte-stable across runs.
- * - object keys sorted lexicographically at every level
- * - arrays preserve order
- * - undefined keys dropped (so callers can pass `{...x, hash: undefined}` to skip hash)
- */
-export function canonicalize(obj: unknown): string {
-  if (obj === undefined) return "null";
-  if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
-  if (Array.isArray(obj)) return "[" + obj.map(canonicalize).join(",") + "]";
-  const rec = obj as Record<string, unknown>;
-  const keys = Object.keys(rec)
-    .filter((k) => rec[k] !== undefined)
-    .sort();
-  return (
-    "{" +
-    keys
-      .map((k) => JSON.stringify(k) + ":" + canonicalize(rec[k]))
-      .join(",") +
-    "}"
-  );
-}
+import { canonicalize } from "../util/canonicalJson.js";
+export { canonicalize };
 
 // ---------- Secret redaction (edge 9) ----------
 
@@ -79,17 +59,25 @@ export function redactString(s: string, literals: readonly string[] = []): strin
   return out;
 }
 
-/** Returns first leak descriptor, or null if clean. */
-export function findLeak(s: string, literals: readonly string[] = []): string | null {
+function findLiteralLeak(s: string, literals: readonly string[]): string | null {
   for (const lit of literals) {
     if (!lit) continue;
     if (s.includes(lit)) return `literal:${lit.slice(0, 4)}…`;
   }
+  return null;
+}
+
+function findPatternLeak(s: string): string | null {
   for (const re of SECRET_PATTERNS) {
     const test = new RegExp(re.source, re.flags.replace("g", ""));
     if (test.test(s)) return `pattern:${re.source}`;
   }
   return null;
+}
+
+/** Returns first leak descriptor, or null if clean. */
+export function findLeak(s: string, literals: readonly string[] = []): string | null {
+  return findLiteralLeak(s, literals) ?? findPatternLeak(s);
 }
 
 /** Walk a value tree; redact every string in place by returning a new tree. */
@@ -104,17 +92,21 @@ function redactValue(v: unknown, literals: readonly string[]): unknown {
   return out;
 }
 
+function scanLeakChildren(v: object, literals: readonly string[]): string | null {
+  for (const val of Object.values(v as Record<string, unknown>)) {
+    const hit = scanLeak(val, literals);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Walk a value tree; return first leak descriptor (or null). */
 function scanLeak(v: unknown, literals: readonly string[]): string | null {
   if (typeof v === "string") return findLeak(v, literals);
   if (v === null || typeof v !== "object") return null;
   // Audit payloads are JSON-shaped; `Object.values` on Array matches index-ordered
   // element traversal (same ordering the old Array.isArray branch used).
-  for (const val of Object.values(v as Record<string, unknown>)) {
-    const hit = scanLeak(val, literals);
-    if (hit) return hit;
-  }
-  return null;
+  return scanLeakChildren(v, literals);
 }
 
 export class RedactionFailure extends Error {
@@ -140,7 +132,7 @@ export function hashRecord(rec: Omit<AuditRecordT, "hash">): string {
 
 // ---------- Writer ----------
 
-export interface AuditWriterOptions {
+interface AuditWriterOptions {
   /** absolute path to runs/<id>/audit.jsonl */
   path: string;
   /** previous hash to chain from (default ZERO_HASH = first record) */

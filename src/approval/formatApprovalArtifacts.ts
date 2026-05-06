@@ -18,7 +18,7 @@ const ApprovalPayloadSchema = z.object({
   pending_diff_rel: z.string(),
   written_at: z.string(),
 });
-export type ApprovalPayloadT = z.infer<typeof ApprovalPayloadSchema>;
+type ApprovalPayloadT = z.infer<typeof ApprovalPayloadSchema>;
 
 function findingSeverityRank(s: string): number {
   if (s === "error") return 0;
@@ -50,7 +50,7 @@ function topChurnRows(churn: ReturnType<typeof diffChurnByFile>, limit: number) 
   return sorted.slice(0, limit);
 }
 
-export interface FormatApprovalInput {
+interface FormatApprovalInput {
   runId: string;
   runDir: string;
   supervisorId: string;

@@ -16,7 +16,7 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-export interface TfClientOptions extends TfConfig {
+interface TfClientOptions extends TfConfig {
   /** Injection seam for tests; defaults to `globalThis.fetch`. */
   fetchImpl?: FetchLike;
   /** Request timeout (ms). Default 10s. */
@@ -109,19 +109,21 @@ export class TfClient {
    * decide how to parse — error classification still happens here for
    * common shapes (auth / 5xx / network).
    */
-  async request(pathOrUrl: string, init: RequestInit = {}): Promise<Response> {
-    const url = this.resolve(pathOrUrl);
+  private buildAuthHeaders(init: RequestInit): Headers {
     const headers = new Headers(init.headers);
     if (!headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${this.apiKey}`);
     }
     if (!headers.has("Accept")) headers.set("Accept", "application/json");
+    return headers;
+  }
 
+  private async fetchWithTimeout(url: URL, init: RequestInit): Promise<Response> {
+    const headers = this.buildAuthHeaders(init);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    let res: Response;
     try {
-      res = await this.fetchImpl(url, {
+      return await this.fetchImpl(url, {
         ...init,
         headers,
         signal: init.signal ?? controller.signal,
@@ -131,7 +133,9 @@ export class TfClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
 
+  private async mapErrorStatuses(res: Response): Promise<Response> {
     if (res.status === 401 || res.status === 403) {
       const body = await safeText(res);
       throw new TfAuthError(res.status, body);
@@ -141,6 +145,12 @@ export class TfClient {
       throw new TfHttpError(res.status, body);
     }
     return res;
+  }
+
+  async request(pathOrUrl: string, init: RequestInit = {}): Promise<Response> {
+    const url = this.resolve(pathOrUrl);
+    const res = await this.fetchWithTimeout(url, init);
+    return this.mapErrorStatuses(res);
   }
 
   /**
@@ -160,21 +170,26 @@ export class TfClient {
   }
 }
 
-function extractModelIds(raw: unknown): string[] {
-  if (raw === null) return [];
-  // Stryker disable next-line ConditionalExpression: successful `Response.json()` is object or null; RFC 8259 value grammar leaves no observable `data` for non-objects
-  if (typeof raw !== "object") return [];
-  const data = (raw as { data?: unknown }).data;
-  if (!Array.isArray(data)) return [];
+function modelIdFromListEntry(entry: unknown): string | undefined {
+  if (entry == null || typeof entry !== "object") return undefined;
+  const id = (entry as { id?: unknown }).id;
+  return typeof id === "string" ? id : undefined;
+}
+
+function collectModelIdsFromArray(data: readonly unknown[]): string[] {
   const ids: string[] = [];
   for (const entry of data) {
-    if (entry == null) continue;
-    // Stryker disable next-line ConditionalExpression: `data[]` entries per RFC 8259 + list models shape — only JSON objects can own string `id`; primitives skip w/out test-killable delta
-    if (typeof entry !== "object") continue;
-    const id = (entry as { id?: unknown }).id;
-    if (typeof id === "string") ids.push(id);
+    const id = modelIdFromListEntry(entry);
+    if (id !== undefined) ids.push(id);
   }
   return ids;
+}
+
+function extractModelIds(raw: unknown): string[] {
+  if (raw === null || typeof raw !== "object") return [];
+  const data = (raw as { data?: unknown }).data;
+  if (!Array.isArray(data)) return [];
+  return collectModelIdsFromArray(data);
 }
 
 async function safeText(res: Response): Promise<string> {

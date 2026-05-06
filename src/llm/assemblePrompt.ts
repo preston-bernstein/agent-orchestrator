@@ -11,9 +11,9 @@ import type { ToonSection } from "./toonContext.js";
  * deferred until TF model wiring lands per O8.
  */
 
-export type PathOwnership = Readonly<Record<string, readonly string[]>>;
+type PathOwnership = Readonly<Record<string, readonly string[]>>;
 
-export interface AssemblePromptInput {
+interface AssemblePromptInput {
   /** Caveman-gate output (compressed user-facing text). */
   caveman: string;
   /** Optional TOON-encoded slices (allowlist per O6). */
@@ -124,25 +124,37 @@ function readEnvCap(): number {
   return Math.floor(n);
 }
 
+function appendToonSections(
+  sections: string[],
+  toonSections: AssemblePromptInput["toonSections"],
+): void {
+  if (!toonSections?.length) return;
+  for (const s of toonSections) {
+    sections.push(`### ${s.label}\n${s.body}`);
+  }
+}
+
+function appendXmlBlobs(
+  sections: string[],
+  xmlBlobs: AssemblePromptInput["xmlBlobs"],
+): void {
+  if (!xmlBlobs?.length) return;
+  for (const b of xmlBlobs) {
+    sections.push(`<${b.tag}>\n${b.body}\n</${b.tag}>`);
+  }
+}
+
 function collectPromptSections(input: AssemblePromptInput): string[] {
   const sections: string[] = [];
   if (input.caveman.trim()) sections.push(input.caveman.trim());
 
-  if (input.toonSections?.length) {
-    for (const s of input.toonSections) {
-      sections.push(`### ${s.label}\n${s.body}`);
-    }
-  }
+  appendToonSections(sections, input.toonSections);
 
   sections.push(input.basePrompt.trim());
   if (input.stackOverlay?.trim()) sections.push(input.stackOverlay.trim());
   if (input.taskContext?.trim()) sections.push(input.taskContext.trim());
 
-  if (input.xmlBlobs?.length) {
-    for (const b of input.xmlBlobs) {
-      sections.push(`<${b.tag}>\n${b.body}\n</${b.tag}>`);
-    }
-  }
+  appendXmlBlobs(sections, input.xmlBlobs);
 
   if (input.outputSchema?.trim()) {
     sections.push(`<output_schema>\n${input.outputSchema.trim()}\n</output_schema>`);

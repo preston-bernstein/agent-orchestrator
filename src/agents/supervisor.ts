@@ -71,7 +71,7 @@ export interface RunSupervisorInput {
   runDir?: string;
 }
 
-export interface RunSupervisorDeps {
+interface RunSupervisorDeps {
   subagentCompletion: (prompt: AssembledPrompt) => Promise<unknown>;
   fixSubagentCompletion: (prompt: AssembledPrompt) => Promise<unknown>;
   /** Gate exec seam (default = real `child_process.execFile`). */
@@ -82,8 +82,10 @@ export interface RunSupervisorDeps {
    * (`Build/Patterns/O3-per-agent-token-budgets.md` §Default budgets) but
    * deliberately conservative.
    */
-  estimateTokens?: (kind: "supervisor" | "subagent" | "fix-subagent") => number;
+  estimateTokens?: (kind: SupervisorEstimateKind) => number;
 }
+
+type SupervisorEstimateKind = "supervisor" | "subagent" | "fix-subagent";
 
 export interface RunSupervisorResult {
   output: SupervisorOutputT;
@@ -107,13 +109,13 @@ export interface RunSupervisorResult {
   }[];
 }
 
-const DEFAULT_TOKEN_EST: Record<"supervisor" | "subagent" | "fix-subagent", number> = {
+const DEFAULT_TOKEN_EST: Record<SupervisorEstimateKind, number> = {
   supervisor: 1000,
   subagent: 4000,
   "fix-subagent": 2000,
 };
 
-function defaultEstimate(kind: "supervisor" | "subagent" | "fix-subagent"): number {
+function defaultEstimate(kind: SupervisorEstimateKind): number {
   return DEFAULT_TOKEN_EST[kind];
 }
 
@@ -121,19 +123,36 @@ function defaultEstimate(kind: "supervisor" | "subagent" | "fix-subagent"): numb
  * Path overlap check (vault supervisor-base §Behavior #1). Refuses BEFORE
  * any LLM call — pure-fn, also re-tested by `tests/agents/supervisor.test.ts`.
  */
+function firstSharedPath(
+  pathsA: readonly string[],
+  pathsB: readonly string[],
+): string | null {
+  for (const p of pathsA) {
+    if (pathsB.includes(p)) return p;
+  }
+  return null;
+}
+
+function overlapWithLaterTasks(
+  ti: PlannerTaskT,
+  tasks: readonly PlannerTaskT[],
+  startJ: number,
+): { otherId: string; path: string } | null {
+  for (let j = startJ; j < tasks.length; j++) {
+    const tj = tasks[j] as PlannerTaskT;
+    const shared = firstSharedPath(ti.paths, tj.paths);
+    if (shared) return { otherId: tj.id, path: shared };
+  }
+  return null;
+}
+
 export function findPathOverlap(
   tasks: readonly PlannerTaskT[],
 ): { a: string; b: string; path: string } | null {
   for (let i = 0; i < tasks.length; i++) {
-    for (let j = i + 1; j < tasks.length; j++) {
-      const ti = tasks[i] as PlannerTaskT;
-      const tj = tasks[j] as PlannerTaskT;
-      for (const p of ti.paths) {
-        if (tj.paths.includes(p)) {
-          return { a: ti.id, b: tj.id, path: p };
-        }
-      }
-    }
+    const ti = tasks[i] as PlannerTaskT;
+    const hit = overlapWithLaterTasks(ti, tasks, i + 1);
+    if (hit) return { a: ti.id, b: hit.otherId, path: hit.path };
   }
   return null;
 }
@@ -243,18 +262,23 @@ function mergedPatchesForTask(
 
 type GateFixIter = "green" | "retry" | "stop_cap" | "stop_clarify";
 
+interface SupervisorGateFixParams {
+  task: PlannerTaskT;
+  input: RunSupervisorInput;
+  deps: RunSupervisorDeps;
+  scratch: SupervisorRunScratch;
+  sub: { status: string; patch: string; rationale: string };
+  estimate: (k: SupervisorEstimateKind) => number;
+  cap: number;
+  gateKind: GateKind;
+  maxFixLoops: number;
+  loc: { attempt: number; lastGateLog: string; lastFailingGate: string };
+}
+
 async function supervisorGateFixIteration(
-  task: PlannerTaskT,
-  input: RunSupervisorInput,
-  deps: RunSupervisorDeps,
-  scratch: SupervisorRunScratch,
-  sub: { status: string; patch: string; rationale: string },
-  estimate: (k: "supervisor" | "subagent" | "fix-subagent") => number,
-  cap: number,
-  gateKind: GateKind,
-  maxFixLoops: number,
-  loc: { attempt: number; lastGateLog: string; lastFailingGate: string },
+  p: SupervisorGateFixParams,
 ): Promise<GateFixIter> {
+  const { task, input, deps, scratch, sub, estimate, cap, gateKind, maxFixLoops, loc } = p;
   const { visited, attemptCounter, tokensDelta, gateHistory, patches, fixTargets } = scratch;
 
   pushVisited(visited, `gate:${task.id}:${loc.attempt}`, cap);
@@ -315,13 +339,21 @@ async function supervisorGateFixIteration(
   return "retry";
 }
 
+async function gateFixLoopUntilStop(p: SupervisorGateFixParams): Promise<boolean> {
+  while (true) {
+    const step = await supervisorGateFixIteration(p);
+    if (step === "green") return true;
+    if (step !== "retry") return false;
+  }
+}
+
 async function runTaskGateFixLoop(
   task: PlannerTaskT,
   input: RunSupervisorInput,
   deps: RunSupervisorDeps,
   scratch: SupervisorRunScratch,
   sub: { status: string; patch: string; rationale: string },
-  estimate: (k: "supervisor" | "subagent" | "fix-subagent") => number,
+  estimate: (k: SupervisorEstimateKind) => number,
   cap: number,
   gateKind: GateKind,
   maxFixLoops: number,
@@ -335,27 +367,18 @@ async function runTaskGateFixLoop(
     lastGateLog: "",
     lastFailingGate: "",
   };
-  let green = false;
-
-  while (true) {
-    const step = await supervisorGateFixIteration(
-      task,
-      input,
-      deps,
-      scratch,
-      sub,
-      estimate,
-      cap,
-      gateKind,
-      maxFixLoops,
-      loc,
-    );
-    if (step === "green") {
-      green = true;
-      break;
-    }
-    if (step !== "retry") break;
-  }
+  const green = await gateFixLoopUntilStop({
+    task,
+    input,
+    deps,
+    scratch,
+    sub,
+    estimate,
+    cap,
+    gateKind,
+    maxFixLoops,
+    loc,
+  });
 
   return {
     task_id: task.id,
@@ -367,12 +390,27 @@ async function runTaskGateFixLoop(
   };
 }
 
+function recordSubagentNonPatchResult(
+  task: PlannerTaskT,
+  sub: { status: string; rationale: string },
+  scratch: SupervisorRunScratch,
+): void {
+  const initialSkipped = sub.status === "no_change";
+  if (!initialSkipped) scratch.anyTaskHumanClarify = true;
+  scratch.taskResults.push({
+    task_id: task.id,
+    state: initialSkipped ? "skipped" : "red",
+    fix_loop_count: 0,
+    notes: sub.rationale.slice(0, 120),
+  });
+}
+
 async function runOneSupervisorTask(
   task: PlannerTaskT,
   input: RunSupervisorInput,
   deps: RunSupervisorDeps,
   scratch: SupervisorRunScratch,
-  estimate: (k: "supervisor" | "subagent" | "fix-subagent") => number,
+  estimate: (k: SupervisorEstimateKind) => number,
   cap: number,
   gateKind: GateKind,
   maxFixLoops: number,
@@ -394,14 +432,7 @@ async function runOneSupervisorTask(
   );
 
   if (sub.status !== "patch") {
-    const initialSkipped = sub.status === "no_change";
-    if (!initialSkipped) scratch.anyTaskHumanClarify = true;
-    taskResults.push({
-      task_id: task.id,
-      state: initialSkipped ? "skipped" : "red",
-      fix_loop_count: 0,
-      notes: sub.rationale.slice(0, 120),
-    });
+    recordSubagentNonPatchResult(task, sub, scratch);
     return;
   }
 
@@ -420,6 +451,56 @@ async function runOneSupervisorTask(
   );
 }
 
+function writePendingDiffIfAllGreen(
+  input: RunSupervisorInput,
+  allGreen: boolean,
+  patches: SupervisorRunScratch["patches"],
+): string | undefined {
+  if (!allGreen || !input.runDir) return undefined;
+  const supDir = path.join(input.runDir, input.supervisorId);
+  mkdirSync(supDir, { recursive: true });
+  const pendingDiffPath = path.join(supDir, "pending.diff");
+  writeFileSync(
+    pendingDiffPath,
+    patches.map((p) => p.patch).join("\n"),
+    "utf8",
+  );
+  return pendingDiffPath;
+}
+
+function deriveSupervisorCompletionFields(
+  scratch: SupervisorRunScratch,
+  allGreen: boolean,
+): Pick<SupervisorOutputT, "status" | "next_action" | "rationale"> {
+  const { taskResults, anyTaskBudgetCap, anyTaskHumanClarify } = scratch;
+  if (anyTaskBudgetCap) {
+    return {
+      status: "budget_exhausted",
+      next_action: "halt",
+      rationale: "fix-loop cap hit on ≥1 task",
+    };
+  }
+  if (anyTaskHumanClarify) {
+    return {
+      status: "needs_human_clarify",
+      next_action: "halt",
+      rationale: "subagent or fix-subagent refused on ≥1 task",
+    };
+  }
+  if (allGreen) {
+    return {
+      status: "done",
+      next_action: "hand_off_to_reviewer",
+      rationale: `all ${taskResults.length} task(s) green`,
+    };
+  }
+  return {
+    status: "done",
+    next_action: "hand_off_to_reviewer",
+    rationale: `${taskResults.filter((r) => r.state === "skipped").length} skipped, rest green`,
+  };
+}
+
 function buildSupervisorFinalReturn(
   input: RunSupervisorInput,
   scratch: SupervisorRunScratch,
@@ -432,52 +513,19 @@ function buildSupervisorFinalReturn(
     patches,
     taskResults,
     fixTargets,
-    anyTaskBudgetCap,
-    anyTaskHumanClarify,
   } = scratch;
 
   const allGreen =
     taskResults.length > 0 && taskResults.every((r) => r.state === "green");
-  let pendingDiffPath: string | undefined;
-
-  if (allGreen && input.runDir) {
-    const supDir = path.join(input.runDir, input.supervisorId);
-    mkdirSync(supDir, { recursive: true });
-    pendingDiffPath = path.join(supDir, "pending.diff");
-    writeFileSync(
-      pendingDiffPath,
-      patches.map((p) => p.patch).join("\n"),
-      "utf8",
-    );
-  }
-
-  let status: SupervisorOutputT["status"];
-  let nextAction: SupervisorOutputT["next_action"];
-  let rationale: string;
-  if (anyTaskBudgetCap) {
-    status = "budget_exhausted";
-    nextAction = "halt";
-    rationale = "fix-loop cap hit on ≥1 task";
-  } else if (anyTaskHumanClarify) {
-    status = "needs_human_clarify";
-    nextAction = "halt";
-    rationale = "subagent or fix-subagent refused on ≥1 task";
-  } else if (allGreen) {
-    status = "done";
-    nextAction = "hand_off_to_reviewer";
-    rationale = `all ${taskResults.length} task(s) green`;
-  } else {
-    status = "done";
-    nextAction = "hand_off_to_reviewer";
-    rationale = `${taskResults.filter((r) => r.state === "skipped").length} skipped, rest green`;
-  }
+  const pendingDiffPath = writePendingDiffIfAllGreen(input, allGreen, patches);
+  const completion = deriveSupervisorCompletionFields(scratch, allGreen);
 
   return {
     output: {
-      status,
-      rationale: rationale.slice(0, 200),
+      status: completion.status,
+      rationale: completion.rationale.slice(0, 200),
       task_results: taskResults,
-      next_action: nextAction,
+      next_action: completion.next_action,
       fix_targets: fixTargets,
       ...(pendingDiffPath ? { pending_diff_path: pendingDiffPath } : {}),
     },
@@ -487,6 +535,23 @@ function buildSupervisorFinalReturn(
     gate_history: gateHistory,
     patches,
   };
+}
+
+function supervisorBootChecks(
+  input: RunSupervisorInput,
+  scratch: SupervisorRunScratch,
+  estimate: (k: SupervisorEstimateKind) => number,
+): RunSupervisorResult | null {
+  const overlap = findPathOverlap(input.tasks);
+  if (overlap) {
+    return haltForPathOverlap(input.tasks, overlap, scratch);
+  }
+
+  scratch.tokensDelta.supervisor += estimate("supervisor");
+  if (!checkSupervisorBudget(input.ctx, scratch.tokensDelta)) {
+    return haltForBootBudget(input.tasks, scratch);
+  }
+  return null;
 }
 
 export async function runSupervisor(
@@ -510,15 +575,8 @@ export async function runSupervisor(
     anyTaskHumanClarify: false,
   };
 
-  const overlap = findPathOverlap(input.tasks);
-  if (overlap) {
-    return haltForPathOverlap(input.tasks, overlap, scratch);
-  }
-
-  scratch.tokensDelta.supervisor += estimate("supervisor");
-  if (!checkSupervisorBudget(input.ctx, scratch.tokensDelta)) {
-    return haltForBootBudget(input.tasks, scratch);
-  }
+  const early = supervisorBootChecks(input, scratch, estimate);
+  if (early) return early;
 
   const cap = input.ctx.graph_depth_cap;
   const gateKind: GateKind = input.gateKind ?? "fast";

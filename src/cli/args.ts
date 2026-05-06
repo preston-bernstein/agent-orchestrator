@@ -11,7 +11,7 @@
  * back in `unknown[]` so callers may decide policy.
  */
 
-export interface ParsedArgs {
+interface ParsedArgs {
   spec?: string;
   dryPlan: boolean;
   execute: boolean;
@@ -49,6 +49,38 @@ function validateMutex(out: ParsedArgs): void {
   }
 }
 
+const BOOL_CLI_FLAGS: Readonly<
+  Record<string, keyof Pick<ParsedArgs, "dryPlan" | "execute" | "dangerApply">>
+> = {
+  "--dry-plan": "dryPlan",
+  "--execute": "execute",
+  "--danger-apply": "dangerApply",
+};
+
+function consumeNextArg(
+  a: string,
+  it: Iterator<string>,
+  out: ParsedArgs,
+): IteratorResult<string, undefined> {
+  const boolField = BOOL_CLI_FLAGS[a];
+  if (boolField) {
+    out[boolField] = true;
+    return it.next();
+  }
+  if (a === "--spec") {
+    const tv = takeFlagValue(it, "--spec", "path");
+    out.spec = tv.value;
+    return tv.next;
+  }
+  if (a === "--reason") {
+    const tv = takeFlagValue(it, "--reason", "string");
+    out.reason = tv.value;
+    return tv.next;
+  }
+  if (a !== undefined) out.unknown.push(a);
+  return it.next();
+}
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const out: ParsedArgs = {
     dryPlan: false,
@@ -59,37 +91,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const it = argv[Symbol.iterator]();
   let cur = it.next();
   while (!cur.done) {
-    const a = cur.value;
-    switch (a) {
-      case "--dry-plan":
-        out.dryPlan = true;
-        cur = it.next();
-        break;
-      case "--execute":
-        out.execute = true;
-        cur = it.next();
-        break;
-      case "--danger-apply":
-        out.dangerApply = true;
-        cur = it.next();
-        break;
-      case "--spec": {
-        const tv = takeFlagValue(it, "--spec", "path");
-        out.spec = tv.value;
-        cur = tv.next;
-        break;
-      }
-      case "--reason": {
-        const tv = takeFlagValue(it, "--reason", "string");
-        out.reason = tv.value;
-        cur = tv.next;
-        break;
-      }
-      default:
-        if (a !== undefined) out.unknown.push(a);
-        cur = it.next();
-        break;
-    }
+    cur = consumeNextArg(cur.value as string, it, out);
   }
   if (process.env.ORCH_DRY_PLAN === "1") out.dryPlan = true;
   validateMutex(out);

@@ -17,12 +17,10 @@ const allowEgress = process.env.ALLOW_TEST_EGRESS === "1";
 
 if (!allowEgress) {
   const refuse: typeof globalThis.fetch = (input) => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : (input as Request).url;
+    let url: string;
+    if (typeof input === "string") url = input;
+    else if (input instanceof URL) url = input.toString();
+    else url = (input as Request).url;
     return Promise.reject(
       new Error(
         `egress refused in test run: ${url} — tests must inject fetchImpl into TfClient`,

@@ -2,16 +2,8 @@ import type { PlannerTaskT } from "./planner.schema.js";
 import { caveman } from "../gates/caveman.js";
 import { assemblePrompt, type AssembledPrompt } from "../llm/assemblePrompt.js";
 import type { StackProfile } from "../stacks/types.js";
-import {
-  SubagentOutput,
-  type SubagentOutputT,
-} from "./subagent.schema.js";
-import {
-  SubagentSchemaError,
-  enforceFilesTouched,
-  enforceSnapshotFlagBan,
-  invokeAndParse,
-} from "./subagent.js";
+import { type SubagentOutputT } from "./subagent.schema.js";
+import { invokeAndParse } from "./subagent.js";
 
 /**
  * Fix-Subagent (vault `Build/Prompts/fix-subagent.md`). Narrowed subagent
@@ -38,7 +30,7 @@ const FIX_SUBAGENT_BASE_PROMPT = [
   "one try per call. emit one diff. end.",
 ].join("\n");
 
-export interface RunFixSubagentInput {
+interface RunFixSubagentInput {
   task: PlannerTaskT;
   stackOverlay?: string;
   stackProfile: StackProfile;
@@ -57,7 +49,7 @@ export interface RunFixSubagentInput {
   ownerKey?: string;
 }
 
-export interface RunFixSubagentDeps {
+interface RunFixSubagentDeps {
   completion: (prompt: AssembledPrompt) => Promise<unknown>;
 }
 

@@ -2,12 +2,14 @@ import { AuditWriter } from "../audit/jsonl.js";
 import type { AssembledPrompt } from "../llm/assemblePrompt.js";
 import type { OrchestratorContextT } from "../runs/orchestratorContext.js";
 import type { PlannerOutputT, PlannerTaskT } from "../agents/planner.schema.js";
+import type { RunSupervisorInput } from "../agents/supervisor.js";
 import {
   runSupervisor,
   type RunSupervisorResult,
 } from "../agents/supervisor.js";
 import { getStackProfile } from "../stacks/index.js";
-import type { RunQualityDeps } from "../gates/runQuality.js";
+import type { StackProfile } from "../stacks/types.js";
+import type { GateInvocation, RunQualityDeps } from "../gates/runQuality.js";
 
 /**
  * Supervisor dispatch. Reads `PlannerOutput`, groups tasks by supervisor
@@ -47,7 +49,7 @@ import type { RunQualityDeps } from "../gates/runQuality.js";
  *   - No Inngest durability (tasks 35–46, HITL-gated).
  */
 
-export interface SupervisorBranchInput {
+interface SupervisorBranchInput {
   ctx: OrchestratorContextT;
   plan: PlannerOutputT;
   /** Override `runs/<run_id>/` dir (tests). */
@@ -60,7 +62,7 @@ export interface SupervisorBranchInput {
   stackOverlays?: Readonly<Record<string, string>>;
 }
 
-export interface SupervisorBranchDeps {
+interface SupervisorBranchDeps {
   subagentCompletion: (prompt: AssembledPrompt) => Promise<unknown>;
   fixSubagentCompletion: (prompt: AssembledPrompt) => Promise<unknown>;
   exec?: RunQualityDeps["exec"];
@@ -222,6 +224,15 @@ function recordContractProducers(
   }
 }
 
+function aggregateEarlyExitFromTaskStatus(
+  s: RunSupervisorResult["output"]["status"],
+): SupervisorBranchResult["aggregateStatus"] | null {
+  if (s === "needs_human_clarify") return "needs_human_clarify";
+  if (s === "budget_exhausted") return "budget_exhausted";
+  if (s === "block_for_contract") return "blocked_on_contract";
+  return null;
+}
+
 function aggregateStatusFromResults(
   results: readonly {
     supervisorId: string;
@@ -232,15 +243,8 @@ function aggregateStatusFromResults(
   let aggregate: SupervisorBranchResult["aggregateStatus"] = "green";
   for (const r of results) {
     const s = r.result.output.status;
-    if (s === "needs_human_clarify") {
-      return "needs_human_clarify";
-    }
-    if (s === "budget_exhausted") {
-      return "budget_exhausted";
-    }
-    if (s === "block_for_contract") {
-      return "blocked_on_contract";
-    }
+    const early = aggregateEarlyExitFromTaskStatus(s);
+    if (early) return early;
     if (s !== "done") aggregate = "red";
   }
   return aggregate;
@@ -261,92 +265,56 @@ interface BranchLoopState {
   }[];
 }
 
-async function runOneSupervisorGroup(
-  group: { supId: string; tasks: PlannerTaskT[] },
-  input: SupervisorBranchInput,
-  deps: SupervisorBranchDeps,
-  audit: AuditWriter,
-  runDir: string | undefined,
+async function runSupervisorGroupBlocked(
+  ctx: OrchestratorContextT,
+  supId: string,
+  stackId: string,
+  tasks: PlannerTaskT[],
+  consumerTasks: PlannerTaskT[],
   st: BranchLoopState,
+  audit: AuditWriter,
 ): Promise<void> {
-  const { ctx, plan } = input;
-  const { supId, tasks } = group;
-  const stackId = stackForSupervisor(supId);
-  const cwd = input.cwds[supId];
-  if (!cwd) throw new UnknownSupervisorCwd(supId);
-  const profile = getStackProfile(stackId);
-  const overlay = input.stackOverlays?.[stackId];
-
-  const consumerTasks = tasks.filter((t) => t.consumes_contract);
-  if (consumerTasks.length > 0 && !st.gateContractPublished) {
-    audit.write({
-      run_id: ctx.run_id,
-      step: "supervisor_blocked",
-      agent: `${supId}-supervisor`,
-      decisions: [
-        `reason=block_for_contract`,
-        `consumer_tasks=${consumerTasks.map((t) => t.id).join(",")}`,
-        `stack=${stackId}`,
-      ],
-      timestamp: new Date().toISOString(),
-    });
-    const blockedResult = contractBlockedSupervisorResult(
-      ctx,
-      supId,
-      stackId,
-      tasks,
-      consumerTasks,
-      st.visited,
-    );
-    audit.write({
-      run_id: ctx.run_id,
-      step: "supervisor_done",
-      agent: `${supId}-supervisor`,
-      decisions: [
-        `status=${blockedResult.output.status}`,
-        `next=${blockedResult.output.next_action}`,
-        `green=0`,
-        `red=0`,
-      ],
-      timestamp: new Date().toISOString(),
-    });
-    st.results.push({ supervisorId: supId, stack: stackId, result: blockedResult });
-    return;
-  }
-
   audit.write({
     run_id: ctx.run_id,
-    step: "supervisor_spawn",
+    step: "supervisor_blocked",
     agent: `${supId}-supervisor`,
     decisions: [
-      `tasks=${tasks.map((t) => t.id).join(",")}`,
+      `reason=block_for_contract`,
+      `consumer_tasks=${consumerTasks.map((t) => t.id).join(",")}`,
       `stack=${stackId}`,
-      `cwd=${cwd}`,
     ],
     timestamp: new Date().toISOString(),
   });
-
-  const result = await runSupervisor(
-    {
-      tasks,
-      ctx: { ...ctx, visited_nodes: st.visited },
-      profile,
-      ...(overlay !== undefined ? { stackOverlay: overlay } : {}),
-      cwd,
-      supervisorId: supId,
-      ...(runDir !== undefined ? { runDir } : {}),
-    },
-    {
-      subagentCompletion: deps.subagentCompletion,
-      fixSubagentCompletion: deps.fixSubagentCompletion,
-      ...(deps.exec ? { exec: deps.exec } : {}),
-      ...(deps.estimateTokens ? { estimateTokens: deps.estimateTokens } : {}),
-    },
+  const blockedResult = contractBlockedSupervisorResult(
+    ctx,
+    supId,
+    stackId,
+    tasks,
+    consumerTasks,
+    st.visited,
   );
+  audit.write({
+    run_id: ctx.run_id,
+    step: "supervisor_done",
+    agent: `${supId}-supervisor`,
+    decisions: [
+      `status=${blockedResult.output.status}`,
+      `next=${blockedResult.output.next_action}`,
+      `green=0`,
+      `red=0`,
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  st.results.push({ supervisorId: supId, stack: stackId, result: blockedResult });
+}
 
-  st.visited = [...result.visited_nodes];
-
-  for (const gate of result.gate_history) {
+function auditGateInvocations(
+  ctx: OrchestratorContextT,
+  audit: AuditWriter,
+  supId: string,
+  gates: readonly GateInvocation[],
+): void {
+  for (const gate of gates) {
     audit.write({
       run_id: ctx.run_id,
       step: "gate_invocation",
@@ -363,6 +331,75 @@ async function runOneSupervisorGroup(
       timestamp: new Date().toISOString(),
     });
   }
+}
+
+function buildBranchSupervisorInput(
+  ctx: OrchestratorContextT,
+  tasks: PlannerTaskT[],
+  profile: StackProfile,
+  overlay: string | undefined,
+  cwd: string,
+  supId: string,
+  runDir: string | undefined,
+  visited: readonly string[],
+): RunSupervisorInput {
+  return {
+    tasks,
+    ctx: { ...ctx, visited_nodes: [...visited] },
+    profile,
+    ...(overlay !== undefined ? { stackOverlay: overlay } : {}),
+    cwd,
+    supervisorId: supId,
+    ...(runDir !== undefined ? { runDir } : {}),
+  };
+}
+
+async function runSupervisorGroupNormal(
+  ctx: OrchestratorContextT,
+  supId: string,
+  stackId: string,
+  tasks: PlannerTaskT[],
+  profile: ReturnType<typeof getStackProfile>,
+  overlay: string | undefined,
+  cwd: string,
+  runDir: string | undefined,
+  deps: SupervisorBranchDeps,
+  st: BranchLoopState,
+  audit: AuditWriter,
+): Promise<void> {
+  audit.write({
+    run_id: ctx.run_id,
+    step: "supervisor_spawn",
+    agent: `${supId}-supervisor`,
+    decisions: [
+      `tasks=${tasks.map((t) => t.id).join(",")}`,
+      `stack=${stackId}`,
+      `cwd=${cwd}`,
+    ],
+    timestamp: new Date().toISOString(),
+  });
+
+  const supInput = buildBranchSupervisorInput(
+    ctx,
+    tasks,
+    profile,
+    overlay,
+    cwd,
+    supId,
+    runDir,
+    st.visited,
+  );
+
+  const result = await runSupervisor(supInput, {
+    subagentCompletion: deps.subagentCompletion,
+    fixSubagentCompletion: deps.fixSubagentCompletion,
+    ...(deps.exec ? { exec: deps.exec } : {}),
+    ...(deps.estimateTokens ? { estimateTokens: deps.estimateTokens } : {}),
+  });
+
+  st.visited = [...result.visited_nodes];
+
+  auditGateInvocations(ctx, audit, supId, result.gate_history);
 
   const gatePublished = { current: st.gateContractPublished };
   recordContractProducers(
@@ -392,6 +429,43 @@ async function runOneSupervisorGroup(
   });
 
   st.results.push({ supervisorId: supId, stack: stackId, result });
+}
+
+async function runOneSupervisorGroup(
+  group: { supId: string; tasks: PlannerTaskT[] },
+  input: SupervisorBranchInput,
+  deps: SupervisorBranchDeps,
+  audit: AuditWriter,
+  runDir: string | undefined,
+  st: BranchLoopState,
+): Promise<void> {
+  const { ctx } = input;
+  const { supId, tasks } = group;
+  const stackId = stackForSupervisor(supId);
+  const cwd = input.cwds[supId];
+  if (!cwd) throw new UnknownSupervisorCwd(supId);
+  const profile = getStackProfile(stackId);
+  const overlay = input.stackOverlays?.[stackId];
+
+  const consumerTasks = tasks.filter((t) => t.consumes_contract);
+  if (consumerTasks.length > 0 && !st.gateContractPublished) {
+    await runSupervisorGroupBlocked(ctx, supId, stackId, tasks, consumerTasks, st, audit);
+    return;
+  }
+
+  await runSupervisorGroupNormal(
+    ctx,
+    supId,
+    stackId,
+    tasks,
+    profile,
+    overlay,
+    cwd,
+    runDir,
+    deps,
+    st,
+    audit,
+  );
 }
 
 export async function runSupervisorBranch(

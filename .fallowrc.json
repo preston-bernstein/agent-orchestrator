@@ -1,18 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
-    "src/cli/orchestrate.ts",
-    "src/audit/verify.ts",
-    "src/inngest/serve.ts",
-    "src/scorecard/index.ts",
-    "src/reviewer/index.ts",
-    "src/approval/index.ts",
+    "src/**/*.ts",
     "scripts/**/*.ts",
-    "tests/**/*.test.ts"
+    "tests/**/*.ts"
   ],
   "ignorePatterns": [
     "fixtures/**",
     "docs/**",
+    "coverage-istanbul/**",
     "stryker.conf.json",
     "stryker.wide.conf.json"
   ],
@@ -25,11 +21,12 @@
   "duplicates": {
     "enabled": true,
     "mode": "strict",
-    "threshold": 5
+    "threshold": 5,
+    "ignoreImports": true
   },
   "health": {
-    "maxCognitive": 10,
-    "maxCyclomatic": 26,
+    "maxCognitive": 5,
+    "maxCyclomatic": 10,
     "maxCrap": 120,
     "ignore": [
       "src/cli/orchestrate.ts",

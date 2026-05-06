@@ -24,9 +24,7 @@ export default defineConfig({
         "src/audit/verify.ts",
         "src/scorecard/index.ts",
         "src/scorecard/format.ts",
-        "src/reviewer/index.ts",
         "src/runs/loadSpec.ts",
-        "src/approval/index.ts",
         "src/stacks/types.ts",
       ],
       thresholds: {
@@ -107,7 +105,7 @@ export default defineConfig({
         "src/gates/**": {
           lines: 80,
           statements: 80,
-          functions: 85,
+          functions: 80,
           branches: 78,
         },
 

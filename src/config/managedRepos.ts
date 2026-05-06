@@ -32,7 +32,7 @@ import {
  *     same path-violation surface caller decides.
  */
 
-export type RepoId = "spring-api" | "react-ui" | "agent-orchestrator";
+type RepoId = "spring-api" | "react-ui" | "agent-orchestrator";
 export type SupervisorId = "spring" | "react" | "orch";
 
 const REPO_TO_SUPERVISOR: Readonly<Record<RepoId, SupervisorId>> = {
@@ -72,7 +72,7 @@ const RepoMetaSchema = z.object({
   restricted_paths: z.array(z.string()).default([]),
   owners: z.array(z.string()).default([]),
 });
-export type RepoMetaT = z.infer<typeof RepoMetaSchema>;
+type RepoMetaT = z.infer<typeof RepoMetaSchema>;
 
 // ---------- Errors ----------
 
@@ -297,7 +297,7 @@ export function parseManagedReposEnv(raw: string): Record<RepoId, string> {
 
 // ---------- Loader ----------
 
-export interface ManagedRepoEntry {
+interface ManagedRepoEntry {
   repoId: RepoId;
   supervisorId: SupervisorId;
   cwd: string;
@@ -307,7 +307,7 @@ export interface ManagedRepoEntry {
 
 export type ManagedRepoMap = Readonly<Record<SupervisorId, ManagedRepoEntry>>;
 
-export interface LoadManagedReposInput {
+interface LoadManagedReposInput {
   envRaw: string;
   /** Injection seam: file reader (tests). */
   readMeta?: (absPath: string) => Promise<string>;
@@ -317,21 +317,21 @@ async function defaultReadMeta(absPath: string): Promise<string> {
   return readFile(absPath, "utf8");
 }
 
-async function loadManagedRepoEntry(
+async function readRepoMetaRaw(
   repoId: RepoId,
-  cwd: string,
+  metaPath: string,
   reader: (absPath: string) => Promise<string>,
-): Promise<ManagedRepoEntry> {
-  const metaPath = path.join(cwd, "docs", "_meta.md");
-  let raw: string;
+): Promise<string> {
   try {
-    raw = await reader(metaPath);
+    return await reader(metaPath);
   } catch {
     throw new ManagedRepoMetaMissing(repoId, metaPath);
   }
-  let meta: RepoMetaT;
+}
+
+function parseRepoMetaOrThrow(repoId: RepoId, metaPath: string, raw: string): RepoMetaT {
   try {
-    meta = parseRepoMeta(raw);
+    return parseRepoMeta(raw);
   } catch (e) {
     throw new ManagedRepoMetaInvalid(
       repoId,
@@ -339,13 +339,26 @@ async function loadManagedRepoEntry(
       e instanceof Error ? e.message : e,
     );
   }
-  let profile: StackProfile;
+}
+
+function stackProfileOrThrow(stack: string): StackProfile {
   try {
-    profile = getStackProfile(meta.stack);
+    return getStackProfile(stack);
   } catch (e) {
     if (e instanceof UnknownStackError) throw e;
     throw e;
   }
+}
+
+async function loadManagedRepoEntry(
+  repoId: RepoId,
+  cwd: string,
+  reader: (absPath: string) => Promise<string>,
+): Promise<ManagedRepoEntry> {
+  const metaPath = path.join(cwd, "docs", "_meta.md");
+  const raw = await readRepoMetaRaw(repoId, metaPath, reader);
+  const meta = parseRepoMetaOrThrow(repoId, metaPath, raw);
+  const profile = stackProfileOrThrow(meta.stack);
   const supervisorId = supervisorIdForRepo(repoId);
   return {
     repoId,

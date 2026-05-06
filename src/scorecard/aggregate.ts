@@ -3,17 +3,17 @@ import path from "node:path";
 import { verifyChain } from "../audit/verify.js";
 
 /** Named counters Phase 8 / vault Examples task 67 */
-export interface NamedCounters {
+interface NamedCounters {
   dry_plan_count: number;
   o5_skip_count: number;
   hitl_count: number;
 }
 
 /** Demo scorecard scenario id (vault `Orchestration PoC Demo Scorecard.md`). */
-export type ScenarioId = "A" | "B" | "C" | "D" | "E" | "unknown";
+type ScenarioId = "A" | "B" | "C" | "D" | "E" | "unknown";
 
 /** Per-run derived flags Phase 9 / O7 numeric trigger. */
-export interface RunDerived {
+interface RunDerived {
   scenario: ScenarioId;
   /** Aggregate run-level greenness — `true` only if green supervisor outcome
    *  AND audit chain valid AND no `supervisor_blocked`. */
@@ -24,7 +24,7 @@ export interface RunDerived {
   fix_loops: number;
 }
 
-export interface PerRunRollup extends NamedCounters, RunDerived {
+interface PerRunRollup extends NamedCounters, RunDerived {
   run_id: string;
   audit_path: string;
   chain_valid: boolean;
@@ -37,7 +37,7 @@ export interface PerRunRollup extends NamedCounters, RunDerived {
   ended_at: string | null;
 }
 
-export interface TotalsRollup extends NamedCounters {
+interface TotalsRollup extends NamedCounters {
   runs_scanned: number;
   record_count: number;
   tokens_in_total: number;

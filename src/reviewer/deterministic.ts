@@ -25,25 +25,41 @@ export interface ReviewerIntegrationVerdict {
   status?: string;
 }
 
-export interface ReviewerDeterministicInput {
+interface ReviewerDeterministicInput {
   plan: PlannerOutputT;
   supervisors: readonly SupervisorReviewerSlice[];
   repos: ManagedRepoMap;
   integration?: ReviewerIntegrationVerdict;
 }
 
+function appendOwnershipGlobsForTask(
+  t: PlannerOutputT["tasks"][number],
+  supervisorId: string,
+  pom: Record<string, readonly string[] | undefined>,
+  globs: string[],
+): void {
+  if (t.supervisor !== supervisorId) return;
+  const g = pom[t.id];
+  if (g) globs.push(...g);
+}
+
+function collectGlobsForSupervisorTasks(
+  plan: PlannerOutputT,
+  supervisorId: string,
+): string[] {
+  const pom = plan.path_ownership_map ?? {};
+  const globs: string[] = [];
+  for (const t of plan.tasks) {
+    appendOwnershipGlobsForTask(t, supervisorId, pom, globs);
+  }
+  return globs;
+}
+
 function unionOwnershipGlobsForSupervisor(
   plan: PlannerOutputT,
   supervisorId: string,
 ): string[] {
-  const globs: string[] = [];
-  const pom = plan.path_ownership_map ?? {};
-  for (const t of plan.tasks) {
-    if (t.supervisor !== supervisorId) continue;
-    const g = pom[t.id];
-    if (g) globs.push(...g);
-  }
-  return [...new Set(globs)];
+  return [...new Set(collectGlobsForSupervisorTasks(plan, supervisorId))];
 }
 
 function codegenGlobsForSupervisor(repos: ManagedRepoMap, supervisorId: string): string[] {
@@ -98,6 +114,42 @@ function forbiddenSnapshotTouches(profileFlags: readonly string[], diffText: str
   return hits;
 }
 
+function reviewOneDiffPath(
+  file: string,
+  sup: SupervisorReviewerSlice,
+  allowed: readonly string[],
+  codegen: readonly string[],
+  restricted: readonly string[],
+  findings: ReviewerFindingT[],
+): void {
+  const inScope =
+    allowed.length === 0 ? true : allowed.some((g) => globMatch(file, g));
+  if (!inScope) {
+    findings.push({
+      severity: "error",
+      rule: "out-of-scope-edit",
+      file,
+      message: sliceMsg(`path not in path_ownership_map union for ${sup.supervisorId}`),
+    });
+  }
+  if (codegen.some((g) => globMatch(file, g))) {
+    findings.push({
+      severity: "error",
+      rule: "codegen-touched",
+      file,
+      message: sliceMsg("diff intersects codegen_paths / codegenGlobs"),
+    });
+  }
+  if (restricted.some((g) => globMatch(file, g))) {
+    findings.push({
+      severity: "error",
+      rule: "restricted-path",
+      file,
+      message: sliceMsg("diff intersects restricted_paths from _meta.md"),
+    });
+  }
+}
+
 function reviewFilesInDiff(
   paths: string[],
   sup: SupervisorReviewerSlice,
@@ -109,32 +161,7 @@ function reviewFilesInDiff(
   const restricted = restrictedGlobsForSupervisor(input.repos, sup.supervisorId);
 
   for (const file of paths) {
-    const inScope =
-      allowed.length === 0 ? true : allowed.some((g) => globMatch(file, g));
-    if (!inScope) {
-      findings.push({
-        severity: "error",
-        rule: "out-of-scope-edit",
-        file,
-        message: sliceMsg(`path not in path_ownership_map union for ${sup.supervisorId}`),
-      });
-    }
-    if (codegen.some((g) => globMatch(file, g))) {
-      findings.push({
-        severity: "error",
-        rule: "codegen-touched",
-        file,
-        message: sliceMsg("diff intersects codegen_paths / codegenGlobs"),
-      });
-    }
-    if (restricted.some((g) => globMatch(file, g))) {
-      findings.push({
-        severity: "error",
-        rule: "restricted-path",
-        file,
-        message: sliceMsg("diff intersects restricted_paths from _meta.md"),
-      });
-    }
+    reviewOneDiffPath(file, sup, allowed, codegen, restricted, findings);
   }
 }
 

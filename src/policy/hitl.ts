@@ -2,14 +2,14 @@ import type { AuditWriter } from "../audit/jsonl.js";
 import { CliArgError } from "../cli/args.js";
 
 /** Playbook §Human in the loop — C1–C5 ids. */
-export type HitlCategory = "C1" | "C2" | "C3" | "C4" | "C5";
+type HitlCategory = "C1" | "C2" | "C3" | "C4" | "C5";
 
-export type HitlSignal =
+type HitlSignal =
   | { kind: "danger_apply" }
   | { kind: "first_live_tf" }
   | { kind: "restricted_path_touch"; paths: readonly string[] };
 
-export interface HitlClassification {
+interface HitlClassification {
   hitl_category: HitlCategory;
   requires_approval: boolean;
 }
@@ -33,7 +33,7 @@ export function classifyHitl(signal: HitlSignal): HitlClassification {
   }
 }
 
-export interface AuditHitlEscalationInput {
+interface AuditHitlEscalationInput {
   signal: HitlSignal;
   /** CLI `--reason` when `signal.kind === danger_apply` (already validated non-empty). */
   danger_reason?: string;

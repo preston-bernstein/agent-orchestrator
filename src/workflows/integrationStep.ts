@@ -31,13 +31,13 @@ import type { SupervisorBranchResult } from "./supervisorBranch.js";
  * `ContractFormatUnrecognized`); caller decides whether to halt the run.
  */
 
-export type IntegrationSkipReason =
+type IntegrationSkipReason =
   | "aggregate_not_green"
   | "no_consumer"
   | "no_contract_no_consumer"
   | "not_published";
 
-export interface IntegrationStepInput {
+interface IntegrationStepInput {
   ctx: OrchestratorContextT;
   plan: PlannerOutputT;
   branchResult: SupervisorBranchResult;
@@ -49,7 +49,7 @@ export interface IntegrationStepInput {
   priorContractHash?: string | null;
 }
 
-export interface IntegrationStepDeps {
+interface IntegrationStepDeps {
   /** Injection seam: file reader. Defaults to fs.readFile (utf8). */
   readContract?: (absPath: string) => Promise<string>;
 }
@@ -98,43 +98,33 @@ function contractPathForProducer(
     : path.join(producerCwd, producer.contractArtifact);
 }
 
-export async function runIntegrationStep(
-  input: IntegrationStepInput,
-  deps: IntegrationStepDeps = {},
+function auditIntegrationSkipped(
+  audit: AuditWriter,
+  runId: string,
+  reason: IntegrationSkipReason,
+): void {
+  audit.write({
+    run_id: runId,
+    step: "integration_skipped",
+    agent: "integration",
+    decisions: [`reason=${reason}`],
+    timestamp: new Date().toISOString(),
+  });
+}
+
+async function runIntegrationWithAudit(
+  ctx: OrchestratorContextT,
+  audit: AuditWriter,
+  contractAbsPath: string,
+  producer: NonNullable<SupervisorBranchResult["contract_producers"][number]>,
+  plan: PlannerOutputT,
+  priorContractHash: string | null | undefined,
+  reader: (absPath: string) => Promise<string>,
 ): Promise<IntegrationStepResult> {
-  const { ctx, plan, branchResult, cwds } = input;
-  const audit =
-    input.auditWriter ??
-    new AuditWriter({ path: ctx.audit_path, prevHash: ctx.prev_hash });
-  const reader = deps.readContract ?? defaultReadContract;
-
-  const skip = (reason: IntegrationSkipReason): IntegrationStepResult => {
-    audit.write({
-      run_id: ctx.run_id,
-      step: "integration_skipped",
-      agent: "integration",
-      decisions: [`reason=${reason}`],
-      timestamp: new Date().toISOString(),
-    });
-    return { ran: false, reason };
-  };
-
-  const early = integrationPrecheck(branchResult, plan);
-  if (early !== null) return skip(early);
-
-  const producer = branchResult.contract_producers[0];
-  if (!producer) {
-    return skip("not_published");
-  }
-  const contractAbsPath = contractPathForProducer(producer, cwds);
-  if (!contractAbsPath) {
-    return skip("not_published");
-  }
-
   const output = await runIntegration(
     {
       contractPath: contractAbsPath,
-      priorContractHash: input.priorContractHash ?? null,
+      priorContractHash: priorContractHash ?? null,
       hasConsumer: true,
       consumerPaths: consumerPaths(plan),
     },
@@ -155,4 +145,42 @@ export async function runIntegrationStep(
   });
 
   return { ran: true, output, contractAbsPath };
+}
+
+export async function runIntegrationStep(
+  input: IntegrationStepInput,
+  deps: IntegrationStepDeps = {},
+): Promise<IntegrationStepResult> {
+  const { ctx, plan, branchResult, cwds } = input;
+  const audit =
+    input.auditWriter ??
+    new AuditWriter({ path: ctx.audit_path, prevHash: ctx.prev_hash });
+  const reader = deps.readContract ?? defaultReadContract;
+
+  const early = integrationPrecheck(branchResult, plan);
+  if (early !== null) {
+    auditIntegrationSkipped(audit, ctx.run_id, early);
+    return { ran: false, reason: early };
+  }
+
+  const producer = branchResult.contract_producers[0];
+  if (!producer) {
+    auditIntegrationSkipped(audit, ctx.run_id, "not_published");
+    return { ran: false, reason: "not_published" };
+  }
+  const contractAbsPath = contractPathForProducer(producer, cwds);
+  if (!contractAbsPath) {
+    auditIntegrationSkipped(audit, ctx.run_id, "not_published");
+    return { ran: false, reason: "not_published" };
+  }
+
+  return runIntegrationWithAudit(
+    ctx,
+    audit,
+    contractAbsPath,
+    producer,
+    plan,
+    input.priorContractHash,
+    reader,
+  );
 }

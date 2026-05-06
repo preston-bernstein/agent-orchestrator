@@ -28,7 +28,7 @@ import { randomBytes } from "node:crypto";
  * single-writer constraint applies here: keep this writer outside `step.run`
  * boundaries the Inngest function already manages.
  */
-export interface AtomicWriteOptions {
+interface AtomicWriteOptions {
   /** absolute target path (e.g. runs/<id>/state.json) */
   path: string;
   /** payload to serialize w/ JSON.stringify(.., null, 2) */

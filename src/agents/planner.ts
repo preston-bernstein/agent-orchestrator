@@ -17,7 +17,7 @@ import { PlannerOutput, type PlannerOutputT } from "./planner.schema.js";
  * offline.
  */
 
-export interface RunPlannerInput {
+interface RunPlannerInput {
   specs: readonly SpecSnapshotT[];
   cli_flags: Readonly<Record<string, unknown>>;
   tf_capabilities?: { structured_output: boolean; tool_use: boolean };
@@ -25,7 +25,7 @@ export interface RunPlannerInput {
   specBodies?: Readonly<Record<string, string>>;
 }
 
-export interface RunPlannerDeps {
+interface RunPlannerDeps {
   /**
    * Send assembled prompt to TF (or mock). MUST return Zod-validated
    * `PlannerOutput`. Caller is responsible for structured-output enforcement
@@ -127,21 +127,22 @@ export function mockPlannerCompletion(
         refusals: ["no spec"],
       };
     }
-    const tasks = specs.map((s, i) => ({
-      id: `mock-T${i + 1}`,
-      spec_slug: s.slug,
-      repo: (s.repo === "spring-api" || s.repo === "react-ui"
-        ? s.repo
-        : "agent-orchestrator") as "spring-api" | "react-ui" | "agent-orchestrator",
-      supervisor: (s.repo === "spring-api"
-        ? "spring"
-        : s.repo === "react-ui"
-          ? "react"
-          : "orch") as "spring" | "react" | "orch",
-      title: `mock task for ${s.slug}`,
-      paths: [`mock/${s.slug}/**`],
-      depends_on: [] as string[],
-    }));
+    const tasks = specs.map((s, i) => {
+      let supervisor: "spring" | "react" | "orch" = "orch";
+      if (s.repo === "spring-api") supervisor = "spring";
+      else if (s.repo === "react-ui") supervisor = "react";
+      return {
+        id: `mock-T${i + 1}`,
+        spec_slug: s.slug,
+        repo: (s.repo === "spring-api" || s.repo === "react-ui"
+          ? s.repo
+          : "agent-orchestrator") as "spring-api" | "react-ui" | "agent-orchestrator",
+        supervisor,
+        title: `mock task for ${s.slug}`,
+        paths: [`mock/${s.slug}/**`],
+        depends_on: [] as string[],
+      };
+    });
     const path_ownership_map: Record<string, string[]> = {};
     for (const t of tasks) path_ownership_map[t.id] = t.paths;
     return {

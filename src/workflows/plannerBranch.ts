@@ -26,13 +26,13 @@ import { atomicWriteJson } from "../runs/state.js";
  * supervisors).
  */
 
-export interface CliFlags {
+interface CliFlags {
   dry_plan?: boolean;
   execute?: boolean;
   spec_path?: string;
 }
 
-export interface PlannerBranchInput {
+interface PlannerBranchInput {
   ctx: OrchestratorContextT;
   cliFlags: CliFlags;
   /** completion function — `mockPlannerCompletion(specs)` for MOCK_TF; real TF later. */
@@ -49,7 +49,7 @@ export interface PlannerBranchInput {
   dryRunDeps?: Pick<PlannerDryRunInput, "gitStatus" | "readTasks">;
 }
 
-export type PlannerBranchOutcome =
+type PlannerBranchOutcome =
   | { kind: "skipped"; reason: string; auditTailHash: string }
   | { kind: "dry_plan"; planPath: string; plan: PlannerOutputT; auditTailHash: string }
   | {
@@ -105,82 +105,32 @@ function resolveCompletion(
   };
 }
 
-export async function runPlannerBranch(
-  input: PlannerBranchInput,
-): Promise<PlannerBranchOutcome> {
-  const { ctx, cliFlags } = input;
-
-  if (cliFlags.dry_plan && cliFlags.execute) {
-    throw new CliFlagConflict();
-  }
-  const isExecute = cliFlags.execute === true;
-
-  const runDir = input.runDir ?? path.dirname(ctx.state_file_path);
-  mkdirSync(runDir, { recursive: true });
-
-  const audit =
-    input.auditWriter ??
-    new AuditWriter({ path: ctx.audit_path, prevHash: ctx.prev_hash });
-
+function outcomeFromDryRunSkip(
+  ctx: OrchestratorContextT,
+  audit: AuditWriter,
+  reason: string,
+): PlannerBranchOutcome {
   audit.write({
     run_id: ctx.run_id,
-    step: "planner_branch:start",
-    agent: "system",
-    decisions: [
-      isExecute ? "execute=true" : "dry_plan=default-or-explicit",
-      `specs=${ctx.specs.length}`,
-    ],
-    timestamp: new Date().toISOString(),
-  });
-
-  const dryRun = await plannerDryRun({
-    specs: ctx.specs.map((s) => ({
-      slug: s.slug,
-      tasks_path: s.tasks_path,
-      repo: process.cwd(),
-    })),
-    attempt_counter: ctx.attempt_counter,
-    ...(input.dryRunDeps ?? {}),
-  });
-  if (dryRun.skip) {
-    audit.write({
-      run_id: ctx.run_id,
-      step: "planner_skipped",
-      agent: "planner",
-      decisions: [dryRun.reason],
-      timestamp: new Date().toISOString(),
-    });
-    return {
-      kind: "skipped",
-      reason: dryRun.reason,
-      auditTailHash: audit.currentPrevHash,
-    };
-  }
-
-  const completion = resolveCompletion(input);
-  const plan = (await runPlanner(
-    {
-      specs: ctx.specs,
-      cli_flags: ctx.cli_flags,
-      tf_capabilities: ctx.tf_capabilities,
-    },
-    { completion },
-  )) as PlannerOutputT;
-
-  const planPath = path.join(runDir, "plan.json");
-  atomicWriteJson({ path: planPath, data: plan });
-  audit.write({
-    run_id: ctx.run_id,
-    step: "planner_emitted",
+    step: "planner_skipped",
     agent: "planner",
-    decisions: [
-      `status=${plan.status}`,
-      `tasks=${plan.tasks.length}`,
-      `path=${planPath}`,
-    ],
+    decisions: [reason],
     timestamp: new Date().toISOString(),
   });
+  return {
+    kind: "skipped",
+    reason,
+    auditTailHash: audit.currentPrevHash,
+  };
+}
 
+function finalizePlannerBranchOutcome(
+  ctx: OrchestratorContextT,
+  audit: AuditWriter,
+  planPath: string,
+  plan: PlannerOutputT,
+  isExecute: boolean,
+): PlannerBranchOutcome {
   if (!isExecute) {
     audit.write({
       run_id: ctx.run_id,
@@ -210,4 +160,85 @@ export async function runPlannerBranch(
     plan,
     auditTailHash: audit.currentPrevHash,
   };
+}
+
+function resolvePlannerRunDir(input: PlannerBranchInput): string {
+  const runDir = input.runDir ?? path.dirname(input.ctx.state_file_path);
+  mkdirSync(runDir, { recursive: true });
+  return runDir;
+}
+
+function auditPlannerBranchStart(
+  ctx: OrchestratorContextT,
+  audit: AuditWriter,
+  isExecute: boolean,
+): void {
+  audit.write({
+    run_id: ctx.run_id,
+    step: "planner_branch:start",
+    agent: "system",
+    decisions: [
+      isExecute ? "execute=true" : "dry_plan=default-or-explicit",
+      `specs=${ctx.specs.length}`,
+    ],
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export async function runPlannerBranch(
+  input: PlannerBranchInput,
+): Promise<PlannerBranchOutcome> {
+  const { ctx, cliFlags } = input;
+
+  if (cliFlags.dry_plan && cliFlags.execute) {
+    throw new CliFlagConflict();
+  }
+  const isExecute = cliFlags.execute === true;
+
+  const runDir = resolvePlannerRunDir(input);
+
+  const audit =
+    input.auditWriter ??
+    new AuditWriter({ path: ctx.audit_path, prevHash: ctx.prev_hash });
+
+  auditPlannerBranchStart(ctx, audit, isExecute);
+
+  const dryRun = await plannerDryRun({
+    specs: ctx.specs.map((s) => ({
+      slug: s.slug,
+      tasks_path: s.tasks_path,
+      repo: process.cwd(),
+    })),
+    attempt_counter: ctx.attempt_counter,
+    ...(input.dryRunDeps ?? {}),
+  });
+  if (dryRun.skip) {
+    return outcomeFromDryRunSkip(ctx, audit, dryRun.reason);
+  }
+
+  const completion = resolveCompletion(input);
+  const plan = (await runPlanner(
+    {
+      specs: ctx.specs,
+      cli_flags: ctx.cli_flags,
+      tf_capabilities: ctx.tf_capabilities,
+    },
+    { completion },
+  )) as PlannerOutputT;
+
+  const planPath = path.join(runDir, "plan.json");
+  atomicWriteJson({ path: planPath, data: plan });
+  audit.write({
+    run_id: ctx.run_id,
+    step: "planner_emitted",
+    agent: "planner",
+    decisions: [
+      `status=${plan.status}`,
+      `tasks=${plan.tasks.length}`,
+      `path=${planPath}`,
+    ],
+    timestamp: new Date().toISOString(),
+  });
+
+  return finalizePlannerBranchOutcome(ctx, audit, planPath, plan, isExecute);
 }

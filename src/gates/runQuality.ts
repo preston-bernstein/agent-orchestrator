@@ -25,7 +25,7 @@ const execFileAsync = promisify(execFile);
 
 export type GateKind = "preflight" | "fast" | "heavy";
 
-export interface GateExecResult {
+interface GateExecResult {
   exit: number;
   stdout: string;
   stderr: string;
@@ -34,7 +34,7 @@ export interface GateExecResult {
   duration_ms?: number;
 }
 
-export interface RunQualityInput {
+interface RunQualityInput {
   profile: StackProfile;
   cwd: string;
   kind: GateKind;
@@ -97,6 +97,40 @@ function tailLines(s: string, n: number): string {
   return lines.slice(lines.length - n).join("\n");
 }
 
+type ExecErr = Error & {
+  code?: number;
+  signal?: string;
+  stdout?: string;
+  stderr?: string;
+  killed?: boolean;
+};
+
+function gateExecSuccess(stdout: string, stderr: string, startMs: number): GateExecResult {
+  return {
+    exit: 0,
+    stdout,
+    stderr,
+    oom: /OutOfMemoryError/.test(stderr),
+    duration_ms: Date.now() - startMs,
+  };
+}
+
+function gateExecFromCaught(err: ExecErr, startMs: number): GateExecResult {
+  const stderr = err.stderr ?? "";
+  return {
+    exit: typeof err.code === "number" ? err.code : 1,
+    stdout: err.stdout ?? "",
+    stderr,
+    oom: /OutOfMemoryError/.test(stderr),
+    timed_out: err.killed === true || err.signal === "SIGTERM",
+    duration_ms: Date.now() - startMs,
+  };
+}
+
+function mergeExecEnv(env?: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+  return env ? { ...process.env, ...env } : process.env;
+}
+
 /**
  * Default exec — `child_process.execFile` w/ timeout + OOM substring scan.
  * Production lane only; tests inject `deps.exec`.
@@ -113,39 +147,17 @@ async function defaultExec(
     return { exit: 127, stdout: "", stderr: "empty cmd" };
   }
   const [program, ...args] = cmd as [string, ...string[]];
-  const start = Date.now();
+  const startMs = Date.now();
   try {
     const { stdout, stderr } = await execFileAsync(program, args, {
       cwd: opts.cwd,
       timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      env: mergeExecEnv(opts.env),
       maxBuffer: 50 * 1024 * 1024,
     });
-    return {
-      exit: 0,
-      stdout,
-      stderr,
-      oom: /OutOfMemoryError/.test(stderr),
-      duration_ms: Date.now() - start,
-    };
+    return gateExecSuccess(stdout, stderr, startMs);
   } catch (e) {
-    type ExecErr = Error & {
-      code?: number;
-      signal?: string;
-      stdout?: string;
-      stderr?: string;
-      killed?: boolean;
-    };
-    const err = e as ExecErr;
-    const stderr = err.stderr ?? "";
-    return {
-      exit: typeof err.code === "number" ? err.code : 1,
-      stdout: err.stdout ?? "",
-      stderr,
-      oom: /OutOfMemoryError/.test(stderr),
-      timed_out: err.killed === true || err.signal === "SIGTERM",
-      duration_ms: Date.now() - start,
-    };
+    return gateExecFromCaught(e as ExecErr, startMs);
   }
 }
 
