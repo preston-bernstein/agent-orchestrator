@@ -7,7 +7,7 @@ export const ZERO_HASH = "0".repeat(64);
 
 // ---------- Record schema ----------
 
-const AuditRecord = z.object({
+const _AuditRecordSchema = z.object({
   run_id: z.string(),
   step: z.string(),
   agent: z.string(),
@@ -24,7 +24,7 @@ const AuditRecord = z.object({
   prev_hash: z.string(),
   hash: z.string(),
 });
-export type AuditRecordT = z.infer<typeof AuditRecord>;
+export type AuditRecordT = z.infer<typeof _AuditRecordSchema>;
 
 export type AuditRecordInput = Omit<AuditRecordT, "prev_hash" | "hash">;
 

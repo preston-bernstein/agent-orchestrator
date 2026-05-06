@@ -14,15 +14,9 @@ import { initRunContext } from "../../src/runs/orchestratorContext.js";
 import { atomicWriteJson } from "../../src/runs/state.js";
 import { verifyChain } from "../../src/audit/verify.js";
 import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
+import { SNAPSHOT, SCENARIO_A_PLAN, OVERLAP_PLAN } from "./fixtures.js";
 
 const tmpRoot = path.join(process.cwd(), "runs", "_test_supervisor_branch");
-
-const SNAPSHOT = {
-  docPath: "docs/playbook-expectations.md",
-  docSha256: "a".repeat(64),
-  vault_git_sha: "1507957",
-  vault_cut_date: "2026-05-04",
-};
 
 afterEach(async () => {
   await rm(tmpRoot, { recursive: true, force: true });
@@ -49,25 +43,6 @@ function makeRun(opts: { runId: string }) {
   return { ctx, runDir, repoCwd };
 }
 
-const SCENARIO_A_PLAN: PlannerOutputT = {
-  status: "ready",
-  rationale: "scenario A — single spring task, API-only",
-  tasks: [
-    {
-      id: "spring-T1",
-      spec_slug: "auth-feature",
-      repo: "spring-api",
-      supervisor: "spring",
-      title: "add auth endpoint",
-      paths: ["src/main/java/auth/**", "src/test/java/auth/**"],
-      depends_on: [],
-    },
-  ],
-  path_ownership_map: {
-    "spring-T1": ["src/main/java/auth/**", "src/test/java/auth/**"],
-  },
-  refusals: [],
-};
 
 describe("runSupervisorBranch — Scenario A (java-spring, API-only, mock TF + mock gate)", () => {
   it("walks plan → supervisor → subagent → gate green; emits pending.diff + audit chain valid", async () => {
@@ -197,6 +172,31 @@ describe("runSupervisorBranch — fix-loop converges then green", () => {
     expect(sup.result.output.status).toBe("done");
     expect(sup.result.output.task_results[0]?.fix_loop_count).toBe(1);
     expect(sup.result.gate_history.length).toBe(2);
+  });
+});
+
+describe("runSupervisorBranch — path overlap → aggregate needs_human_clarify", () => {
+  it("short-circuits aggregate when plan tasks overlap paths", async () => {
+    const { ctx, runDir, repoCwd } = makeRun({ runId: "overlap-agg" });
+    ctx.path_ownership_map = {
+      "spring-T1": ["src/main/java/auth/**"],
+      "spring-T2": ["src/main/java/auth/**"],
+    };
+    const out = await runSupervisorBranch(
+      {
+        ctx,
+        plan: OVERLAP_PLAN,
+        cwds: { spring: repoCwd },
+        runDir,
+      },
+      {
+        subagentCompletion: mockSubagentCompletion(),
+        fixSubagentCompletion: mockFixSubagentCompletion(),
+        exec: mockExec({ exit: 0 }),
+      },
+    );
+    expect(out.aggregateStatus).toBe("needs_human_clarify");
+    expect(out.supervisors.length).toBe(1);
   });
 });
 

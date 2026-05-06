@@ -161,14 +161,23 @@ export async function runSubagent(
     ownerKey,
   });
 
-  const raw = await deps.completion(prompt);
+  return invokeAndParse(deps.completion, prompt, input.task.paths, input.stackProfile);
+}
+
+export async function invokeAndParse(
+  completion: (prompt: AssembledPrompt) => Promise<unknown>,
+  prompt: AssembledPrompt,
+  taskPaths: readonly string[],
+  stackProfile: StackProfile,
+): Promise<SubagentOutputT> {
+  const raw = await completion(prompt);
   const parsed = SubagentOutput.safeParse(raw);
   if (!parsed.success) {
     throw new SubagentSchemaError(parsed.error.issues);
   }
   let out = parsed.data;
-  out = enforceFilesTouched(out, input.task.paths);
-  out = enforceSnapshotFlagBan(out, input.stackProfile);
+  out = enforceFilesTouched(out, taskPaths);
+  out = enforceSnapshotFlagBan(out, stackProfile);
   return out;
 }
 

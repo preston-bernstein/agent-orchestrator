@@ -27,6 +27,28 @@ export class CliArgError extends Error {
   }
 }
 
+function takeFlagValue(
+  it: Iterator<string>,
+  flagName: string,
+  kind: "path" | "string",
+): { value: string; next: IteratorResult<string, undefined> } {
+  const vNext = it.next();
+  const v = vNext.done ? undefined : vNext.value;
+  if (!v || v.startsWith("--")) {
+    throw new CliArgError(`${flagName} requires a ${kind} arg`);
+  }
+  return { value: v, next: it.next() };
+}
+
+function validateMutex(out: ParsedArgs): void {
+  if (out.dryPlan && out.execute) {
+    throw new CliArgError("--dry-plan and --execute are mutually exclusive");
+  }
+  if (out.dryPlan && out.dangerApply) {
+    throw new CliArgError("--danger-apply conflicts with dry-plan mode");
+  }
+}
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const out: ParsedArgs = {
     dryPlan: false,
@@ -52,23 +74,15 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         cur = it.next();
         break;
       case "--spec": {
-        const vNext = it.next();
-        const v = vNext.done ? undefined : vNext.value;
-        if (!v || v.startsWith("--")) {
-          throw new CliArgError("--spec requires a path arg");
-        }
-        out.spec = v;
-        cur = it.next();
+        const tv = takeFlagValue(it, "--spec", "path");
+        out.spec = tv.value;
+        cur = tv.next;
         break;
       }
       case "--reason": {
-        const vNext = it.next();
-        const v = vNext.done ? undefined : vNext.value;
-        if (!v || v.startsWith("--")) {
-          throw new CliArgError("--reason requires a string arg");
-        }
-        out.reason = v;
-        cur = it.next();
+        const tv = takeFlagValue(it, "--reason", "string");
+        out.reason = tv.value;
+        cur = tv.next;
         break;
       }
       default:
@@ -78,11 +92,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     }
   }
   if (process.env.ORCH_DRY_PLAN === "1") out.dryPlan = true;
-  if (out.dryPlan && out.execute) {
-    throw new CliArgError("--dry-plan and --execute are mutually exclusive");
-  }
-  if (out.dryPlan && out.dangerApply) {
-    throw new CliArgError("--danger-apply conflicts with dry-plan mode");
-  }
+  validateMutex(out);
   return out;
 }

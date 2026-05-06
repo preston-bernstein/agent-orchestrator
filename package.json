@@ -16,7 +16,7 @@
     "quality": "pnpm run typecheck && pnpm run lint && pnpm run coverage && pnpm run fallow",
     "ci": "concurrently -g -n \"tc,lint,fallow,cov\" -c blue,green,cyan,magenta \"pnpm run typecheck\" \"pnpm run lint\" \"pnpm run fallow\" \"pnpm run coverage\" && concurrently -g -n \"t0,wide\" -c yellow,red \"pnpm run mutation:t0\" \"pnpm run mutation:wide\"",
     "ci:seq": "pnpm run quality && pnpm run mutation:t0 && pnpm run mutation:wide",
-    "fallow": "fallow --ci",
+    "fallow": "fallow --format compact",
     "orchestrate": "tsx src/cli/orchestrate.ts",
     "audit:verify": "tsx src/audit/verify.ts",
     "scorecard": "tsx src/scorecard/index.ts",

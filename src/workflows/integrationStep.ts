@@ -1,11 +1,7 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { AuditWriter } from "../audit/jsonl.js";
-import {
-  ContractArtifactMissing,
-  ContractFormatUnrecognized,
-  runIntegration,
-} from "../agents/integration.js";
+import { runIntegration } from "../agents/integration.js";
 import type { IntegrationOutputT } from "../agents/integration.schema.js";
 import type { OrchestratorContextT } from "../runs/orchestratorContext.js";
 import type { PlannerOutputT } from "../agents/planner.schema.js";
@@ -78,6 +74,30 @@ function consumerPaths(plan: PlannerOutputT): string[] {
   return out;
 }
 
+function integrationPrecheck(
+  branchResult: SupervisorBranchResult,
+  plan: PlannerOutputT,
+): IntegrationSkipReason | null {
+  if (branchResult.aggregateStatus !== "green") return "aggregate_not_green";
+  const consumer = hasConsumerTask(plan);
+  if (!branchResult.gate_contract_published) {
+    return consumer ? "not_published" : "no_contract_no_consumer";
+  }
+  if (!consumer) return "no_consumer";
+  return null;
+}
+
+function contractPathForProducer(
+  producer: NonNullable<SupervisorBranchResult["contract_producers"][number]>,
+  cwds: Readonly<Record<string, string>>,
+): string | null {
+  const producerCwd = cwds[producer.supervisorId];
+  if (!producerCwd) return null;
+  return path.isAbsolute(producer.contractArtifact)
+    ? producer.contractArtifact
+    : path.join(producerCwd, producer.contractArtifact);
+}
+
 export async function runIntegrationStep(
   input: IntegrationStepInput,
   deps: IntegrationStepDeps = {},
@@ -99,31 +119,17 @@ export async function runIntegrationStep(
     return { ran: false, reason };
   };
 
-  if (branchResult.aggregateStatus !== "green") {
-    return skip("aggregate_not_green");
-  }
-
-  const consumer = hasConsumerTask(plan);
-  if (!branchResult.gate_contract_published) {
-    return skip(consumer ? "not_published" : "no_contract_no_consumer");
-  }
-  if (!consumer) {
-    return skip("no_consumer");
-  }
+  const early = integrationPrecheck(branchResult, plan);
+  if (early !== null) return skip(early);
 
   const producer = branchResult.contract_producers[0];
   if (!producer) {
-    // Defensive: gate_contract_published true but list empty — should not happen.
     return skip("not_published");
   }
-  const producerCwd = cwds[producer.supervisorId];
-  if (!producerCwd) {
-    // Defensive: caller must register cwds[producer.supervisorId]; treat as not published.
+  const contractAbsPath = contractPathForProducer(producer, cwds);
+  if (!contractAbsPath) {
     return skip("not_published");
   }
-  const contractAbsPath = path.isAbsolute(producer.contractArtifact)
-    ? producer.contractArtifact
-    : path.join(producerCwd, producer.contractArtifact);
 
   const output = await runIntegration(
     {

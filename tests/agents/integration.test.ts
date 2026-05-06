@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
   ContractArtifactMissing,
   ContractFormatUnrecognized,
@@ -31,6 +32,19 @@ describe("integration agent — deterministic-only (Phase 6 MVP)", () => {
     const a = '{"openapi":"3.0","paths":{"/x":{}}}';
     const b = '{\n  "openapi": "3.0",\n  "paths": {\n    "/x": {}\n  }\n}\n';
     expect(hashContract(a, ".json")).toBe(hashContract(b, ".json"));
+  });
+
+  it("hashes raw bytes when .json is invalid (JSON.parse catch path)", () => {
+    const raw = "{ not json";
+    expect(hashContract(raw, ".json")).toBe(
+      createHash("sha256").update(raw).digest("hex"),
+    );
+  });
+
+  it("hashes raw bytes for non-.json extension", () => {
+    expect(hashContract("openapi: 3", ".yaml")).toBe(
+      createHash("sha256").update("openapi: 3").digest("hex"),
+    );
   });
 
   it("returns compatible/proceed when hash matches prior green hash", async () => {

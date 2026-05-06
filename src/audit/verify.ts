@@ -14,6 +14,42 @@ export type VerifyResult =
  *
  * Empty file → valid w/ count 0.
  */
+function verifyChainRecord(
+  line: string,
+  index: number,
+  prev: string,
+):
+  | { ok: true; nextPrev: string }
+  | { ok: false; result: VerifyResult } {
+  let rec: AuditRecordT;
+  try {
+    rec = JSON.parse(line) as AuditRecordT;
+  } catch (e) {
+    return {
+      ok: false,
+      result: {
+        valid: false,
+        brokenAt: index,
+        reason: `invalid JSON: ${e instanceof Error ? e.message : String(e)}`,
+      },
+    };
+  }
+  if (rec.prev_hash !== prev) {
+    return {
+      ok: false,
+      result: { valid: false, brokenAt: index, reason: "prev_hash mismatch" },
+    };
+  }
+  const recomputed = hashRecord(rec);
+  if (recomputed !== rec.hash) {
+    return {
+      ok: false,
+      result: { valid: false, brokenAt: index, reason: "hash mismatch" },
+    };
+  }
+  return { ok: true, nextPrev: rec.hash };
+}
+
 export function verifyChain(path: string): VerifyResult {
   let raw: string;
   try {
@@ -28,25 +64,9 @@ export function verifyChain(path: string): VerifyResult {
   const lines = raw.split("\n").filter((l) => l.length > 0);
   let prev = ZERO_HASH;
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string;
-    let rec: AuditRecordT;
-    try {
-      rec = JSON.parse(line) as AuditRecordT;
-    } catch (e) {
-      return {
-        valid: false,
-        brokenAt: i,
-        reason: `invalid JSON: ${e instanceof Error ? e.message : String(e)}`,
-      };
-    }
-    if (rec.prev_hash !== prev) {
-      return { valid: false, brokenAt: i, reason: "prev_hash mismatch" };
-    }
-    const recomputed = hashRecord(rec);
-    if (recomputed !== rec.hash) {
-      return { valid: false, brokenAt: i, reason: "hash mismatch" };
-    }
-    prev = rec.hash;
+    const step = verifyChainRecord(lines[i] as string, i, prev);
+    if (!step.ok) return step.result;
+    prev = step.nextPrev;
   }
   return { valid: true, count: lines.length };
 }

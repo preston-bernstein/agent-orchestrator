@@ -22,6 +22,44 @@ export interface DiffFileChurn {
   minus: number;
 }
 
+function pathFromPlusPlusMatch(hdr: RegExpExecArray): string | null {
+  let p = hdr[1]?.trim() ?? "";
+  if (p === "/dev/null") return null;
+  if (p.startsWith("b/")) p = p.slice(2);
+  return p || null;
+}
+
+function isChurnMetaLine(line: string): boolean {
+  return (
+    line.startsWith("+++ ") ||
+    line.startsWith("--- ") ||
+    line.startsWith("diff ") ||
+    line.startsWith("@@")
+  );
+}
+
+function applyChurnDelta(
+  line: string,
+  current: string,
+  bump: (f: string, deltaP: number, deltaM: number) => void,
+): void {
+  if (line.startsWith("+")) bump(current, 1, 0);
+  else if (line.startsWith("-")) bump(current, 0, 1);
+}
+
+function applyChurnLine(
+  line: string,
+  current: string | null,
+  bump: (f: string, deltaP: number, deltaM: number) => void,
+): string | null {
+  const hdr = /^\+\+\+ ([^\t]+)/.exec(line);
+  if (hdr) return pathFromPlusPlusMatch(hdr);
+  if (!current) return current;
+  if (isChurnMetaLine(line)) return current;
+  applyChurnDelta(line, current, bump);
+  return current;
+}
+
 /** Per-file +/- line counts (excluding headers `+++`, `---`, `@@`). */
 export function diffChurnByFile(diffText: string): DiffFileChurn[] {
   const lines = diffText.split(/\r?\n/);
@@ -36,23 +74,7 @@ export function diffChurnByFile(diffText: string): DiffFileChurn[] {
   };
 
   for (const line of lines) {
-    const hdr = /^\+\+\+ ([^\t]+)/.exec(line);
-    if (hdr) {
-      let p = hdr[1]?.trim() ?? "";
-      if (p === "/dev/null") {
-        current = null;
-        continue;
-      }
-      if (p.startsWith("b/")) p = p.slice(2);
-      current = p || null;
-      continue;
-    }
-    if (!current) continue;
-    if (line.startsWith("+++ ") || line.startsWith("--- ") || line.startsWith("diff "))
-      continue;
-    if (line.startsWith("@@")) continue;
-    if (line.startsWith("+")) bump(current, 1, 0);
-    else if (line.startsWith("-")) bump(current, 0, 1);
+    current = applyChurnLine(line, current, bump);
   }
 
   return [...map.entries()].map(([file, v]) => ({

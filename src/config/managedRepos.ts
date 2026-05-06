@@ -130,6 +130,72 @@ function unquote(s: string): string {
 
 type PendingKind = "unknown" | "array" | "object";
 
+interface MetaParseCtx {
+  out: Record<string, unknown>;
+  pendingKey: string | null;
+  pendingKind: PendingKind;
+  pendingArray: string[];
+  pendingObject: Record<string, string>;
+}
+
+function flushMetaPending(ctx: MetaParseCtx): void {
+  if (!ctx.pendingKey) return;
+  if (ctx.pendingKind === "object") {
+    ctx.out[ctx.pendingKey] = ctx.pendingObject;
+  } else {
+    ctx.out[ctx.pendingKey] = ctx.pendingArray;
+  }
+  ctx.pendingKey = null;
+  ctx.pendingKind = "unknown";
+  ctx.pendingArray = [];
+  ctx.pendingObject = {};
+}
+
+function tryConsumeMetaArrayLine(line: string, ctx: MetaParseCtx): boolean {
+  const arrayItem = /^\s+-\s+(.*)$/.exec(line);
+  if (!arrayItem || !ctx.pendingKey) return false;
+  if (ctx.pendingKind === "unknown") ctx.pendingKind = "array";
+  if (ctx.pendingKind !== "array") return false;
+  ctx.pendingArray.push(unquote(arrayItem[1] as string));
+  return true;
+}
+
+function tryConsumeMetaObjectLine(line: string, ctx: MetaParseCtx): boolean {
+  const indented = /^ {2}([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
+  if (!indented || !ctx.pendingKey) return false;
+  if (ctx.pendingKind === "unknown") ctx.pendingKind = "object";
+  if (ctx.pendingKind !== "object") return false;
+  const k = indented[1] as string;
+  ctx.pendingObject[k] = unquote(indented[2] ?? "");
+  return true;
+}
+
+function tryConsumeMetaContinuation(line: string, ctx: MetaParseCtx): boolean {
+  if (tryConsumeMetaArrayLine(line, ctx)) return true;
+  return tryConsumeMetaObjectLine(line, ctx);
+}
+
+function parseMetaTopScalar(line: string, ctx: MetaParseCtx): void {
+  const top = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
+  if (!top) return;
+  const key = top[1] as string;
+  const val = (top[2] ?? "").trim();
+  if (val === "") {
+    ctx.pendingKey = key;
+    ctx.pendingKind = "unknown";
+    return;
+  }
+  if (val === "[]") {
+    ctx.out[key] = [];
+    return;
+  }
+  if (val === "{}") {
+    ctx.out[key] = {};
+    return;
+  }
+  ctx.out[key] = unquote(val);
+}
+
 /**
  * Minimal YAML parser scoped to vault `_meta.md` shape:
  *   - Top-level scalars (`stack: java-spring`)
@@ -147,67 +213,21 @@ type PendingKind = "unknown" | "array" | "object";
  *   followed by next top-level key ⇒ empty array (most permissive default)
  */
 export function parseMetaYaml(yaml: string): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const lines = yaml.split(/\r?\n/);
-  let pendingKey: string | null = null;
-  let pendingKind: PendingKind = "unknown";
-  let pendingArray: string[] = [];
-  let pendingObject: Record<string, string> = {};
-
-  const flush = () => {
-    if (!pendingKey) return;
-    if (pendingKind === "object") {
-      out[pendingKey] = pendingObject;
-    } else {
-      out[pendingKey] = pendingArray;
-    }
-    pendingKey = null;
-    pendingKind = "unknown";
-    pendingArray = [];
-    pendingObject = {};
+  const ctx: MetaParseCtx = {
+    out: {},
+    pendingKey: null,
+    pendingKind: "unknown",
+    pendingArray: [],
+    pendingObject: {},
   };
-
-  for (const line of lines) {
+  for (const line of yaml.split(/\r?\n/)) {
     if (line.trim() === "") continue;
-    const arrayItem = /^\s+-\s+(.*)$/.exec(line);
-    if (arrayItem && pendingKey) {
-      if (pendingKind === "unknown") pendingKind = "array";
-      if (pendingKind === "array") {
-        pendingArray.push(unquote(arrayItem[1] as string));
-        continue;
-      }
-    }
-    const indented = /^ {2}([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
-    if (indented && pendingKey) {
-      if (pendingKind === "unknown") pendingKind = "object";
-      if (pendingKind === "object") {
-        const k = indented[1] as string;
-        pendingObject[k] = unquote(indented[2] ?? "");
-        continue;
-      }
-    }
-    flush();
-    const top = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
-    if (!top) continue;
-    const key = top[1] as string;
-    const val = (top[2] ?? "").trim();
-    if (val === "") {
-      pendingKey = key;
-      pendingKind = "unknown";
-      continue;
-    }
-    if (val === "[]") {
-      out[key] = [];
-      continue;
-    }
-    if (val === "{}") {
-      out[key] = {};
-      continue;
-    }
-    out[key] = unquote(val);
+    if (tryConsumeMetaContinuation(line, ctx)) continue;
+    flushMetaPending(ctx);
+    parseMetaTopScalar(line, ctx);
   }
-  flush();
-  return out;
+  flushMetaPending(ctx);
+  return ctx.out;
 }
 
 export function parseRepoMeta(raw: string): RepoMetaT {
@@ -235,35 +255,42 @@ function isKnownRepo(s: string): s is RepoId {
   return (KNOWN_REPOS as readonly string[]).includes(s);
 }
 
+function ingestManagedRepoSegment(
+  raw: string,
+  seg: string,
+  out: Partial<Record<RepoId, string>>,
+): void {
+  if (!seg) return;
+  const idx = seg.indexOf(":");
+  if (idx <= 0) {
+    throw new ManagedRepoEnvError(raw, `expected 'repo-id:/abs/path', got '${seg}'`);
+  }
+  const repoId = seg.slice(0, idx).trim();
+  const cwd = seg.slice(idx + 1).trim();
+  if (!isKnownRepo(repoId)) {
+    throw new ManagedRepoEnvError(
+      raw,
+      `unknown repo id '${repoId}' (allowed: ${KNOWN_REPOS.join(", ")})`,
+    );
+  }
+  if (!path.isAbsolute(cwd)) {
+    throw new ManagedRepoEnvError(
+      raw,
+      `cwd for '${repoId}' must be absolute path, got '${cwd}'`,
+    );
+  }
+  if (out[repoId]) {
+    throw new ManagedRepoEnvError(raw, `duplicate repo id '${repoId}'`);
+  }
+  out[repoId] = cwd;
+}
+
 export function parseManagedReposEnv(raw: string): Record<RepoId, string> {
   const trimmed = raw.trim();
   if (!trimmed) return {} as Record<RepoId, string>;
   const out: Partial<Record<RepoId, string>> = {};
   for (const pair of trimmed.split(",")) {
-    const seg = pair.trim();
-    if (!seg) continue;
-    const idx = seg.indexOf(":");
-    if (idx <= 0) {
-      throw new ManagedRepoEnvError(raw, `expected 'repo-id:/abs/path', got '${seg}'`);
-    }
-    const repoId = seg.slice(0, idx).trim();
-    const cwd = seg.slice(idx + 1).trim();
-    if (!isKnownRepo(repoId)) {
-      throw new ManagedRepoEnvError(
-        raw,
-        `unknown repo id '${repoId}' (allowed: ${KNOWN_REPOS.join(", ")})`,
-      );
-    }
-    if (!path.isAbsolute(cwd)) {
-      throw new ManagedRepoEnvError(
-        raw,
-        `cwd for '${repoId}' must be absolute path, got '${cwd}'`,
-      );
-    }
-    if (out[repoId]) {
-      throw new ManagedRepoEnvError(raw, `duplicate repo id '${repoId}'`);
-    }
-    out[repoId] = cwd;
+    ingestManagedRepoSegment(raw, pair.trim(), out);
   }
   return out as Record<RepoId, string>;
 }
@@ -290,6 +317,45 @@ async function defaultReadMeta(absPath: string): Promise<string> {
   return readFile(absPath, "utf8");
 }
 
+async function loadManagedRepoEntry(
+  repoId: RepoId,
+  cwd: string,
+  reader: (absPath: string) => Promise<string>,
+): Promise<ManagedRepoEntry> {
+  const metaPath = path.join(cwd, "docs", "_meta.md");
+  let raw: string;
+  try {
+    raw = await reader(metaPath);
+  } catch {
+    throw new ManagedRepoMetaMissing(repoId, metaPath);
+  }
+  let meta: RepoMetaT;
+  try {
+    meta = parseRepoMeta(raw);
+  } catch (e) {
+    throw new ManagedRepoMetaInvalid(
+      repoId,
+      metaPath,
+      e instanceof Error ? e.message : e,
+    );
+  }
+  let profile: StackProfile;
+  try {
+    profile = getStackProfile(meta.stack);
+  } catch (e) {
+    if (e instanceof UnknownStackError) throw e;
+    throw e;
+  }
+  const supervisorId = supervisorIdForRepo(repoId);
+  return {
+    repoId,
+    supervisorId,
+    cwd,
+    meta,
+    profile,
+  };
+}
+
 export async function loadManagedRepos(
   input: LoadManagedReposInput,
 ): Promise<ManagedRepoMap> {
@@ -299,37 +365,8 @@ export async function loadManagedRepos(
   const out: Partial<Record<SupervisorId, ManagedRepoEntry>> = {};
   for (const [repoIdRaw, cwd] of Object.entries(mapping)) {
     const repoId = repoIdRaw as RepoId;
-    const metaPath = path.join(cwd, "docs", "_meta.md");
-    let raw: string;
-    try {
-      raw = await reader(metaPath);
-    } catch {
-      throw new ManagedRepoMetaMissing(repoId, metaPath);
-    }
-    let meta: RepoMetaT;
-    try {
-      meta = parseRepoMeta(raw);
-    } catch (e) {
-      throw new ManagedRepoMetaInvalid(
-        repoId,
-        metaPath,
-        e instanceof Error ? e.message : e,
-      );
-    }
-    let profile: StackProfile;
-    try {
-      profile = getStackProfile(meta.stack);
-    } catch (e) {
-      if (e instanceof UnknownStackError) throw e;
-      throw e;
-    }
-    out[supervisorIdForRepo(repoId)] = {
-      repoId,
-      supervisorId: supervisorIdForRepo(repoId),
-      cwd,
-      meta,
-      profile,
-    };
+    const entry = await loadManagedRepoEntry(repoId, cwd, reader);
+    out[entry.supervisorId] = entry;
   }
   return out as ManagedRepoMap;
 }

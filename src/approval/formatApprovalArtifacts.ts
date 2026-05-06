@@ -60,6 +60,46 @@ export interface FormatApprovalInput {
   integrationNote?: string;
 }
 
+function sumChurnTotals(churn: ReturnType<typeof diffChurnByFile>): {
+  plus: number;
+  minus: number;
+} {
+  let plus = 0;
+  let minus = 0;
+  for (const c of churn) {
+    plus += c.plus;
+    minus += c.minus;
+  }
+  return { plus, minus };
+}
+
+function findingsMarkdownLines(findings: readonly ReviewerFindingT[]): string[] {
+  const md: string[] = ["", "## Reviewer findings (this supervisor's files)", ""];
+  if (findings.length === 0) {
+    md.push("- _(none)_");
+    return md;
+  }
+  for (const f of findings) {
+    const loc = f.file ? `${f.file}:${f.line ?? ""}` : "";
+    md.push(`- ${f.severity} · ${f.rule} · ${loc} · ${f.message}`);
+  }
+  return md;
+}
+
+function churnTableMarkdown(
+  top: { file: string; plus: number; minus: number }[],
+  churnLen: number,
+): string[] {
+  const md: string[] = ["", "## Diff stat (top 20 files by churn)", "", "| File | + | - |", "| ---- | - | - |"];
+  for (const row of top) {
+    md.push(`| ${row.file} | ${row.plus} | ${row.minus} |`);
+  }
+  if (churnLen > top.length) {
+    md.push("", `_… +${churnLen - top.length} more files; see pending.diff_`);
+  }
+  return md;
+}
+
 /**
  * Writes `approval-prompt.md` + `approval-payload.json` per vault
  * `Build/Prompts/approval-formatter.md` (deterministic MVP).
@@ -82,12 +122,7 @@ export function formatApprovalArtifacts(input: FormatApprovalInput): {
 
   const churn = diffChurnByFile(input.diffText);
   const top = topChurnRows(churn, 20);
-  let plus = 0;
-  let minus = 0;
-  for (const c of churn) {
-    plus += c.plus;
-    minus += c.minus;
-  }
+  const { plus, minus } = sumChurnTotals(churn);
 
   const payload: ApprovalPayloadT = ApprovalPayloadSchema.parse({
     run_id: input.runId,
@@ -122,26 +157,12 @@ export function formatApprovalArtifacts(input: FormatApprovalInput): {
   mdLines.push("", "## Gate summary", "");
   mdLines.push(`- Fast: ${input.reviewer.gate_summary.fast}`);
   mdLines.push(`- Heavy: ${input.reviewer.gate_summary.heavy}`);
-  mdLines.push("", "## Reviewer findings (this supervisor's files)", "");
-  if (findings.length === 0) mdLines.push("- _(none)_");
-  else {
-    for (const f of findings) {
-      const loc = f.file ? `${f.file}:${f.line ?? ""}` : "";
-      mdLines.push(`- ${f.severity} · ${f.rule} · ${loc} · ${f.message}`);
-    }
-  }
+  mdLines.push(...findingsMarkdownLines(findings));
 
   mdLines.push("", "## Integration impact (if API supervisor)", "");
   mdLines.push(input.integrationNote ?? "- _(n/a or skipped)_");
 
-  mdLines.push("", "## Diff stat (top 20 files by churn)", "");
-  mdLines.push("| File | + | - |", "| ---- | - | - |");
-  for (const row of top) {
-    mdLines.push(`| ${row.file} | ${row.plus} | ${row.minus} |`);
-  }
-  if (churn.length > top.length) {
-    mdLines.push("", `_… +${churn.length - top.length} more files; see pending.diff_`);
-  }
+  mdLines.push(...churnTableMarkdown(top, churn.length));
 
   mdLines.push(
     "",

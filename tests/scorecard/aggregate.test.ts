@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuditWriter } from "../../src/audit/jsonl.js";
@@ -144,6 +144,104 @@ describe("scorecard aggregate", () => {
     const cut = sinceIsoUtc("2026-05-04");
     const f = filterRunsSince(runs, cut);
     expect(f.map((x) => x.run_id)).toEqual(["new"]);
+  });
+
+  it("sinceIsoUtc rejects non YYYY-MM-DD", () => {
+    expect(() => sinceIsoUtc("2026/05/04")).toThrow(/--since expects YYYY-MM-DD/);
+  });
+
+  it("rollupAuditJsonl handles missing audit file (empty parse + broken chain)", () => {
+    const p = path.join(root, "nope", "audit.jsonl");
+    const r = rollupAuditJsonl(p);
+    expect(r.chain_valid).toBe(false);
+    expect(r.record_count).toBe(0);
+    expect(r.scenario).toBe("unknown");
+    expect(r.green).toBe(false);
+  });
+
+  it("filterRunsSince keeps runs with ended_at null", () => {
+    const cut = sinceIsoUtc("2026-05-04");
+    const runs = [
+      {
+        run_id: "open",
+        audit_path: "/",
+        chain_valid: true,
+        record_count: 1,
+        dry_plan_count: 0,
+        o5_skip_count: 0,
+        hitl_count: 0,
+        counts_by_step: {},
+        tokens_in_total: 0,
+        tokens_out_total: 0,
+        started_at: "2026-05-05T00:00:00Z",
+        ended_at: null as string | null,
+        scenario: "unknown" as const,
+        green: false,
+        fix_loops: 0,
+      },
+    ];
+    expect(filterRunsSince(runs, cut)).toHaveLength(1);
+  });
+
+  it("parseRollupLines picks earliest started_at and latest ended_at", async () => {
+    await mkdir(path.join(root, "tsorder"), { recursive: true });
+    const ap = path.join(root, "tsorder", "audit.jsonl");
+    const w = new AuditWriter({ path: ap });
+    w.write({ run_id: "tsorder", step: "boot", agent: "x", timestamp: "2026-05-04T02:00:00Z" });
+    w.write({ run_id: "tsorder", step: "dry_plan", agent: "p", timestamp: "2026-05-04T00:00:00Z" });
+    const r = rollupAuditJsonl(ap);
+    expect(r.chain_valid).toBe(true);
+    expect(r.started_at).toBe("2026-05-04T00:00:00Z");
+    expect(r.ended_at).toBe("2026-05-04T02:00:00Z");
+  });
+
+  it("parseRollupLines skips invalid JSON lines (ledger still sums parseable rows)", async () => {
+    await mkdir(path.join(root, "badline"), { recursive: true });
+    const ap = path.join(root, "badline", "audit.jsonl");
+    const w = new AuditWriter({ path: ap });
+    w.write({ run_id: "badline", step: "dry_plan", agent: "p", timestamp: "2026-05-04T00:00:00Z" });
+    const body = await readFile(ap, "utf8");
+    await writeFile(ap, `${body.trimEnd()}\nnot-json{`, "utf8");
+    const r = rollupAuditJsonl(ap);
+    expect(r.chain_valid).toBe(false);
+    expect(r.dry_plan_count).toBe(1);
+    expect(r.record_count).toBe(2);
+  });
+
+  it("supervisor_spawn agent must match *-supervisor; non-done status ⇒ not green", async () => {
+    await mkdir(path.join(root, "sup-parse"), { recursive: true });
+    const ap = path.join(root, "sup-parse", "audit.jsonl");
+    const w = new AuditWriter({ path: ap });
+    w.write({
+      run_id: "sup-parse",
+      step: "supervisor_spawn",
+      agent: "mystery",
+      timestamp: "2026-05-04T00:00:00Z",
+    });
+    w.write({
+      run_id: "sup-parse",
+      step: "supervisor_done",
+      agent: "mystery",
+      decisions: ["status=pending", "next=halt"],
+      timestamp: "2026-05-04T00:00:01Z",
+    });
+    const r = rollupAuditJsonl(ap);
+    expect(r.scenario).toBe("unknown");
+    expect(r.green).toBe(false);
+  });
+
+  it("buildScorecardModel honors explicit auditPaths list", async () => {
+    await mkdir(path.join(root, "x1"), { recursive: true });
+    await mkdir(path.join(root, "x2"), { recursive: true });
+    const p1 = path.join(root, "x1", "audit.jsonl");
+    const p2 = path.join(root, "x2", "audit.jsonl");
+    const w1 = new AuditWriter({ path: p1 });
+    w1.write({ run_id: "x1", step: "dry_plan", agent: "p", timestamp: "2026-05-04T00:00:00Z" });
+    const w2 = new AuditWriter({ path: p2 });
+    w2.write({ run_id: "x2", step: "dry_plan", agent: "p", timestamp: "2026-05-04T00:00:00Z" });
+    const m = buildScorecardModel(root, [path.resolve(p2)]);
+    expect(m.runs).toHaveLength(1);
+    expect(m.runs[0]?.run_id).toBe("x2");
   });
 
   it("buildScorecardModel aggregates discovered paths", async () => {

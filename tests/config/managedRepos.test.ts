@@ -76,6 +76,13 @@ stack: ts-node`);
     expect(obj.codegen_paths).toEqual([]);
     expect(obj.stack).toBe("ts-node");
   });
+
+  it("parses inline empty object as {}", () => {
+    const obj = parseMetaYaml(`flags: {}
+stack: ts-node`);
+    expect(obj.flags).toEqual({});
+    expect(obj.stack).toBe("ts-node");
+  });
 });
 
 describe("parseRepoMeta — schema validation", () => {
@@ -129,6 +136,16 @@ describe("parseManagedReposEnv", () => {
     expect(() => parseManagedReposEnv("spring-api/abs")).toThrow(
       ManagedRepoEnvError,
     );
+  });
+
+  it("throws when colon at position 0 (empty repo id)", () => {
+    expect(() => parseManagedReposEnv(":/abs/spring-api")).toThrow(
+      ManagedRepoEnvError,
+    );
+  });
+
+  it("throws on token without colon", () => {
+    expect(() => parseManagedReposEnv("springapi")).toThrow(ManagedRepoEnvError);
   });
 
   it("throws on unknown repo id", () => {

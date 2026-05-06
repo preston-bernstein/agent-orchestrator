@@ -10,6 +10,7 @@ import {
   SubagentSchemaError,
   enforceFilesTouched,
   enforceSnapshotFlagBan,
+  invokeAndParse,
 } from "./subagent.js";
 
 /**
@@ -102,15 +103,7 @@ export async function runFixSubagent(
     ownerKey,
   });
 
-  const raw = await deps.completion(prompt);
-  const parsed = SubagentOutput.safeParse(raw);
-  if (!parsed.success) {
-    throw new SubagentSchemaError(parsed.error.issues);
-  }
-  let out = parsed.data;
-  out = enforceFilesTouched(out, input.task.paths);
-  out = enforceSnapshotFlagBan(out, input.stackProfile);
-  return out;
+  return invokeAndParse(deps.completion, prompt, input.task.paths, input.stackProfile);
 }
 
 /**

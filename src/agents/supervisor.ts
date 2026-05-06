@@ -164,185 +164,277 @@ function checkSupervisorBudget(
   return spent + delta.supervisor <= cap;
 }
 
-export async function runSupervisor(
+interface SupervisorRunScratch {
+  visited: string[];
+  attemptCounter: Record<string, number>;
+  tokensDelta: BudgetTracker;
+  gateHistory: GateInvocation[];
+  patches: { task_id: string; patch: string; attempt: number }[];
+  taskResults: SupervisorTaskResultT[];
+  fixTargets: SupervisorFixTargetT[];
+  anyTaskBudgetCap: boolean;
+  anyTaskHumanClarify: boolean;
+}
+
+function haltForPathOverlap(
+  tasks: readonly PlannerTaskT[],
+  ov: { a: string; b: string; path: string },
+  scratch: SupervisorRunScratch,
+): RunSupervisorResult {
+  const { visited, attemptCounter, tokensDelta, gateHistory, patches } = scratch;
+  return {
+    output: {
+      status: "needs_human_clarify",
+      rationale: `path overlap: ${ov.a} vs ${ov.b}`,
+      task_results: tasks.map((t) => ({
+        task_id: t.id,
+        state: "skipped",
+        fix_loop_count: 0,
+        notes: "path overlap refusal",
+      })),
+      next_action: "halt",
+      fix_targets: [],
+    },
+    visited_nodes: visited,
+    attempt_counter: attemptCounter,
+    tokens_delta: tokensDelta,
+    gate_history: gateHistory,
+    patches,
+  };
+}
+
+function haltForBootBudget(
+  tasks: readonly PlannerTaskT[],
+  scratch: SupervisorRunScratch,
+): RunSupervisorResult {
+  const { visited, attemptCounter, tokensDelta, gateHistory, patches } = scratch;
+  return {
+    output: {
+      status: "budget_exhausted",
+      rationale: "supervisor token budget exhausted at boot",
+      task_results: tasks.map((t) => ({
+        task_id: t.id,
+        state: "skipped",
+        fix_loop_count: 0,
+        notes: "supervisor budget cap hit",
+      })),
+      next_action: "halt",
+      fix_targets: [],
+    },
+    visited_nodes: visited,
+    attempt_counter: attemptCounter,
+    tokens_delta: tokensDelta,
+    gate_history: gateHistory,
+    patches,
+  };
+}
+
+function mergedPatchesForTask(
+  patches: { task_id: string; patch: string; attempt: number }[],
+  taskId: string,
+  fallback: string,
+): string {
+  const merged = patches
+    .filter((p) => p.task_id === taskId)
+    .map((p) => p.patch)
+    .join("\n");
+  return merged || fallback;
+}
+
+type GateFixIter = "green" | "retry" | "stop_cap" | "stop_clarify";
+
+async function supervisorGateFixIteration(
+  task: PlannerTaskT,
   input: RunSupervisorInput,
   deps: RunSupervisorDeps,
-): Promise<RunSupervisorResult> {
-  const estimate = deps.estimateTokens ?? defaultEstimate;
-  const visited: string[] = [...(input.visited ?? input.ctx.visited_nodes)];
-  const attemptCounter: Record<string, number> = {
-    ...input.ctx.attempt_counter,
-  };
-  const tokensDelta: BudgetTracker = {
-    supervisor: 0,
-    subagent: 0,
-    "fix-subagent": 0,
-  };
-  const gateHistory: GateInvocation[] = [];
-  const patches: { task_id: string; patch: string; attempt: number }[] = [];
-  const taskResults: SupervisorTaskResultT[] = [];
-  const fixTargets: SupervisorFixTargetT[] = [];
+  scratch: SupervisorRunScratch,
+  sub: { status: string; patch: string; rationale: string },
+  estimate: (k: "supervisor" | "subagent" | "fix-subagent") => number,
+  cap: number,
+  gateKind: GateKind,
+  maxFixLoops: number,
+  loc: { attempt: number; lastGateLog: string; lastFailingGate: string },
+): Promise<GateFixIter> {
+  const { visited, attemptCounter, tokensDelta, gateHistory, patches, fixTargets } = scratch;
 
-  const overlap = findPathOverlap(input.tasks);
-  if (overlap) {
-    return {
-      output: {
-        status: "needs_human_clarify",
-        rationale: `path overlap: ${overlap.a} vs ${overlap.b}`,
-        task_results: input.tasks.map((t) => ({
-          task_id: t.id,
-          state: "skipped",
-          fix_loop_count: 0,
-          notes: "path overlap refusal",
-        })),
-        next_action: "halt",
-        fix_targets: [],
-      },
-      visited_nodes: visited,
-      attempt_counter: attemptCounter,
-      tokens_delta: tokensDelta,
-      gate_history: gateHistory,
-      patches,
-    };
+  pushVisited(visited, `gate:${task.id}:${loc.attempt}`, cap);
+  const gate = await runQuality(
+    { profile: input.profile, cwd: input.cwd, kind: gateKind },
+    deps.exec ? { exec: deps.exec } : {},
+  );
+  gateHistory.push(gate);
+  if (gate.exit === 0) return "green";
+
+  loc.lastGateLog = gate.log_tail;
+  loc.lastFailingGate = `${input.profile.id}:${gateKind}`;
+
+  loc.attempt += 1;
+  attemptCounter[task.id] = loc.attempt;
+  if (loc.attempt > maxFixLoops) {
+    scratch.anyTaskBudgetCap = true;
+    fixTargets.push({
+      task_id: task.id,
+      failing_gate: loc.lastFailingGate,
+      log_excerpt: loc.lastGateLog.slice(0, 800),
+    });
+    return "stop_cap";
   }
 
-  tokensDelta.supervisor += estimate("supervisor");
-  if (!checkSupervisorBudget(input.ctx, tokensDelta)) {
-    return {
-      output: {
-        status: "budget_exhausted",
-        rationale: "supervisor token budget exhausted at boot",
-        task_results: input.tasks.map((t) => ({
-          task_id: t.id,
-          state: "skipped",
-          fix_loop_count: 0,
-          notes: "supervisor budget cap hit",
-        })),
-        next_action: "halt",
-        fix_targets: [],
-      },
-      visited_nodes: visited,
-      attempt_counter: attemptCounter,
-      tokens_delta: tokensDelta,
-      gate_history: gateHistory,
-      patches,
-    };
+  pushVisited(visited, `fix-subagent:${task.id}:${loc.attempt}`, cap);
+  tokensDelta["fix-subagent"] += estimate("fix-subagent");
+
+  const priorPatch = mergedPatchesForTask(patches, task.id, sub.patch);
+
+  const fix = await runFixSubagent(
+    {
+      task,
+      stackProfile: input.profile,
+      ...(input.stackOverlay !== undefined
+        ? { stackOverlay: input.stackOverlay }
+        : {}),
+      prior_patch: priorPatch,
+      gate_log_excerpt: loc.lastGateLog,
+      failing_gate: loc.lastFailingGate,
+      attempt: loc.attempt,
+      max_fix_loops: maxFixLoops,
+      path_ownership_map: input.ctx.path_ownership_map,
+    },
+    { completion: deps.fixSubagentCompletion },
+  );
+
+  if (fix.status !== "patch") {
+    scratch.anyTaskHumanClarify = true;
+    fixTargets.push({
+      task_id: task.id,
+      failing_gate: loc.lastFailingGate,
+      log_excerpt: `fix-subagent ${fix.status}: ${fix.rationale}`.slice(0, 800),
+    });
+    return "stop_clarify";
   }
+  patches.push({ task_id: task.id, patch: fix.patch, attempt: loc.attempt });
+  return "retry";
+}
 
-  const cap = input.ctx.graph_depth_cap;
-  const gateKind: GateKind = input.gateKind ?? "fast";
-  const maxFixLoops = input.ctx.max_fix_loops;
+async function runTaskGateFixLoop(
+  task: PlannerTaskT,
+  input: RunSupervisorInput,
+  deps: RunSupervisorDeps,
+  scratch: SupervisorRunScratch,
+  sub: { status: string; patch: string; rationale: string },
+  estimate: (k: "supervisor" | "subagent" | "fix-subagent") => number,
+  cap: number,
+  gateKind: GateKind,
+  maxFixLoops: number,
+): Promise<SupervisorTaskResultT> {
+  const { attemptCounter } = scratch;
 
-  let anyTaskBudgetCap = false;
-  let anyTaskHumanClarify = false;
+  scratch.patches.push({ task_id: task.id, patch: sub.patch, attempt: 0 });
 
-  for (const task of input.tasks) {
-    pushVisited(visited, `subagent:${task.id}`, cap);
-    tokensDelta.subagent += estimate("subagent");
-    const sub = await runSubagent(
-      {
-        task,
-        stackProfile: input.profile,
-        ...(input.stackOverlay !== undefined
-          ? { stackOverlay: input.stackOverlay }
-          : {}),
-        path_ownership_map: input.ctx.path_ownership_map,
-      },
-      { completion: deps.subagentCompletion },
+  const loc = {
+    attempt: attemptCounter[task.id] ?? 0,
+    lastGateLog: "",
+    lastFailingGate: "",
+  };
+  let green = false;
+
+  while (true) {
+    const step = await supervisorGateFixIteration(
+      task,
+      input,
+      deps,
+      scratch,
+      sub,
+      estimate,
+      cap,
+      gateKind,
+      maxFixLoops,
+      loc,
     );
-
-    if (sub.status !== "patch") {
-      const initialSkipped = sub.status === "no_change";
-      if (!initialSkipped) anyTaskHumanClarify = true;
-      taskResults.push({
-        task_id: task.id,
-        state: initialSkipped ? "skipped" : "red",
-        fix_loop_count: 0,
-        notes: sub.rationale.slice(0, 120),
-      });
-      continue;
+    if (step === "green") {
+      green = true;
+      break;
     }
+    if (step !== "retry") break;
+  }
 
-    patches.push({ task_id: task.id, patch: sub.patch, attempt: 0 });
+  return {
+    task_id: task.id,
+    state: green ? "green" : "red",
+    fix_loop_count: loc.attempt,
+    notes: green
+      ? `green after ${loc.attempt} fix-loop(s)`
+      : `red: ${loc.lastFailingGate}`,
+  };
+}
 
-    let attempt = attemptCounter[task.id] ?? 0;
-    let lastGateLog = "";
-    let lastFailingGate = "";
-    let green = false;
+async function runOneSupervisorTask(
+  task: PlannerTaskT,
+  input: RunSupervisorInput,
+  deps: RunSupervisorDeps,
+  scratch: SupervisorRunScratch,
+  estimate: (k: "supervisor" | "subagent" | "fix-subagent") => number,
+  cap: number,
+  gateKind: GateKind,
+  maxFixLoops: number,
+): Promise<void> {
+  const { visited, tokensDelta, taskResults } = scratch;
 
-    while (true) {
-      pushVisited(visited, `gate:${task.id}:${attempt}`, cap);
-      const gate = await runQuality(
-        { profile: input.profile, cwd: input.cwd, kind: gateKind },
-        deps.exec ? { exec: deps.exec } : {},
-      );
-      gateHistory.push(gate);
-      if (gate.exit === 0) {
-        green = true;
-        break;
-      }
-      lastGateLog = gate.log_tail;
-      lastFailingGate = `${input.profile.id}:${gateKind}`;
+  pushVisited(visited, `subagent:${task.id}`, cap);
+  tokensDelta.subagent += estimate("subagent");
+  const sub = await runSubagent(
+    {
+      task,
+      stackProfile: input.profile,
+      ...(input.stackOverlay !== undefined
+        ? { stackOverlay: input.stackOverlay }
+        : {}),
+      path_ownership_map: input.ctx.path_ownership_map,
+    },
+    { completion: deps.subagentCompletion },
+  );
 
-      attempt += 1;
-      attemptCounter[task.id] = attempt;
-      if (attempt > maxFixLoops) {
-        anyTaskBudgetCap = true;
-        fixTargets.push({
-          task_id: task.id,
-          failing_gate: lastFailingGate,
-          log_excerpt: lastGateLog.slice(0, 800),
-        });
-        break;
-      }
-
-      pushVisited(visited, `fix-subagent:${task.id}:${attempt}`, cap);
-      tokensDelta["fix-subagent"] += estimate("fix-subagent");
-
-      const priorPatch =
-        patches
-          .filter((p) => p.task_id === task.id)
-          .map((p) => p.patch)
-          .join("\n") || sub.patch;
-
-      const fix = await runFixSubagent(
-        {
-          task,
-          stackProfile: input.profile,
-          ...(input.stackOverlay !== undefined
-            ? { stackOverlay: input.stackOverlay }
-            : {}),
-          prior_patch: priorPatch,
-          gate_log_excerpt: lastGateLog,
-          failing_gate: lastFailingGate,
-          attempt,
-          max_fix_loops: maxFixLoops,
-          path_ownership_map: input.ctx.path_ownership_map,
-        },
-        { completion: deps.fixSubagentCompletion },
-      );
-
-      if (fix.status !== "patch") {
-        anyTaskHumanClarify = true;
-        fixTargets.push({
-          task_id: task.id,
-          failing_gate: lastFailingGate,
-          log_excerpt: `fix-subagent ${fix.status}: ${fix.rationale}`.slice(0, 800),
-        });
-        break;
-      }
-      patches.push({ task_id: task.id, patch: fix.patch, attempt });
-    }
-
+  if (sub.status !== "patch") {
+    const initialSkipped = sub.status === "no_change";
+    if (!initialSkipped) scratch.anyTaskHumanClarify = true;
     taskResults.push({
       task_id: task.id,
-      state: green ? "green" : "red",
-      fix_loop_count: attempt,
-      notes: green
-        ? `green after ${attempt} fix-loop(s)`
-        : `red: ${lastFailingGate}`,
+      state: initialSkipped ? "skipped" : "red",
+      fix_loop_count: 0,
+      notes: sub.rationale.slice(0, 120),
     });
+    return;
   }
+
+  taskResults.push(
+    await runTaskGateFixLoop(
+      task,
+      input,
+      deps,
+      scratch,
+      sub,
+      estimate,
+      cap,
+      gateKind,
+      maxFixLoops,
+    ),
+  );
+}
+
+function buildSupervisorFinalReturn(
+  input: RunSupervisorInput,
+  scratch: SupervisorRunScratch,
+): RunSupervisorResult {
+  const {
+    visited,
+    attemptCounter,
+    tokensDelta,
+    gateHistory,
+    patches,
+    taskResults,
+    fixTargets,
+    anyTaskBudgetCap,
+    anyTaskHumanClarify,
+  } = scratch;
 
   const allGreen =
     taskResults.length > 0 && taskResults.every((r) => r.state === "green");
@@ -395,4 +487,55 @@ export async function runSupervisor(
     gate_history: gateHistory,
     patches,
   };
+}
+
+export async function runSupervisor(
+  input: RunSupervisorInput,
+  deps: RunSupervisorDeps,
+): Promise<RunSupervisorResult> {
+  const estimate = deps.estimateTokens ?? defaultEstimate;
+  const scratch: SupervisorRunScratch = {
+    visited: [...(input.visited ?? input.ctx.visited_nodes)],
+    attemptCounter: { ...input.ctx.attempt_counter },
+    tokensDelta: {
+      supervisor: 0,
+      subagent: 0,
+      "fix-subagent": 0,
+    },
+    gateHistory: [],
+    patches: [],
+    taskResults: [],
+    fixTargets: [],
+    anyTaskBudgetCap: false,
+    anyTaskHumanClarify: false,
+  };
+
+  const overlap = findPathOverlap(input.tasks);
+  if (overlap) {
+    return haltForPathOverlap(input.tasks, overlap, scratch);
+  }
+
+  scratch.tokensDelta.supervisor += estimate("supervisor");
+  if (!checkSupervisorBudget(input.ctx, scratch.tokensDelta)) {
+    return haltForBootBudget(input.tasks, scratch);
+  }
+
+  const cap = input.ctx.graph_depth_cap;
+  const gateKind: GateKind = input.gateKind ?? "fast";
+  const maxFixLoops = input.ctx.max_fix_loops;
+
+  for (const task of input.tasks) {
+    await runOneSupervisorTask(
+      task,
+      input,
+      deps,
+      scratch,
+      estimate,
+      cap,
+      gateKind,
+      maxFixLoops,
+    );
+  }
+
+  return buildSupervisorFinalReturn(input, scratch);
 }

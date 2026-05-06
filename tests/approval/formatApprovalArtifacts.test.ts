@@ -63,6 +63,47 @@ describe("approval/formatApprovalArtifacts", () => {
     expect(payload.pending_diff_rel).toBe("spring/pending.diff");
   });
 
+  it("aggregates +/- churn across multiple files (md diff stat line)", () => {
+    mkdirSync(tmp, { recursive: true });
+    const plan = mkPlan([
+      {
+        id: "spring-T1",
+        spec_slug: "feat",
+        repo: "spring-api",
+        supervisor: "spring",
+        title: "task",
+        paths: ["src/**"],
+        depends_on: [],
+      },
+    ]);
+    const reviewer = ReviewerOutput.parse({
+      status: "pass",
+      rationale: "ok",
+      findings: [],
+      gate_summary: { fast: "pass", heavy: "skipped" },
+    });
+    const diffText = [
+      "diff --git a/src/A.java b/src/A.java\n",
+      "+++ b/src/A.java\n",
+      "+a1\n",
+      "-a0\n",
+      "diff --git a/src/B.java b/src/B.java\n",
+      "+++ b/src/B.java\n",
+      "+b1\n",
+      "-b0\n",
+    ].join("");
+    const { mdPath } = formatApprovalArtifacts({
+      runId: "run-churn",
+      runDir: tmp,
+      supervisorId: "spring",
+      diffText,
+      reviewer,
+      plan,
+    });
+    const md = readFileSync(mdPath, "utf8");
+    expect(md).toMatch(/Diff: `2\+\/2-`/);
+  });
+
   it("omits integration_note in payload when not passed; md uses n/a line", () => {
     mkdirSync(tmp, { recursive: true });
     const plan = mkPlan([

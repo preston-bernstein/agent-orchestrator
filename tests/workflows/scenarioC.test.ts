@@ -12,6 +12,7 @@ import { AuditWriter } from "../../src/audit/jsonl.js";
 import { verifyChain } from "../../src/audit/verify.js";
 import { hashContract } from "../../src/agents/integration.js";
 import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
+import { SNAPSHOT } from "./fixtures.js";
 
 /**
  * Phase 6 — Scenario C (cross-repo) end-to-end against mocks.
@@ -34,13 +35,6 @@ import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
  */
 
 const tmpRoot = path.join(process.cwd(), "runs", "_test_scenario_C");
-
-const SNAPSHOT = {
-  docPath: "docs/playbook-expectations.md",
-  docSha256: "a".repeat(64),
-  vault_git_sha: "1507957",
-  vault_cut_date: "2026-05-04",
-};
 
 afterEach(async () => {
   await rm(tmpRoot, { recursive: true, force: true });

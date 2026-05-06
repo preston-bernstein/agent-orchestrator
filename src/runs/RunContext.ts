@@ -17,8 +17,6 @@ const RunStatus = z.enum([
 
 const StackId = z.string(); // open-set: 'java-spring' | 'ts-react-vite' | 'ts-node' | …
 
-const RepoLane = z.enum(["api", "ui", "orchestrator", "shared"]);
-
 // ---------- Per-spec snapshot ----------
 
 const SpecSnapshot = z.object({

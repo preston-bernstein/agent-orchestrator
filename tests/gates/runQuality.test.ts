@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mockExec, runQuality } from "../../src/gates/runQuality.js";
 import { javaSpringProfile } from "../../src/stacks/javaSpring.js";
+import type { StackProfile } from "../../src/stacks/types.js";
 
 describe("runQuality — profile dispatch", () => {
   it("selects qualityFastCmd for kind:'fast'", async () => {
@@ -57,6 +58,22 @@ describe("runQuality — log truncation (edge 3)", () => {
     );
     const lines = out.log_tail.split("\n");
     expect(lines.length).toBe(10);
+  });
+});
+
+describe("runQuality — defaultExec edge cases", () => {
+  it("returns exit 127 when command argv is empty (no subprocess)", async () => {
+    const profile: StackProfile = {
+      ...javaSpringProfile,
+      qualityFastCmd: [],
+    };
+    const out = await runQuality(
+      { profile, cwd: process.cwd(), kind: "fast" },
+      {},
+    );
+    expect(out.cmd).toEqual([]);
+    expect(out.exit).toBe(127);
+    expect(out.log_tail).toMatch(/empty cmd/);
   });
 });
 

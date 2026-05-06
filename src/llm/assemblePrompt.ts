@@ -124,11 +124,7 @@ function readEnvCap(): number {
   return Math.floor(n);
 }
 
-export function assemblePrompt(input: AssemblePromptInput): AssembledPrompt {
-  if (input.declaredPaths && input.pathOwnership && input.ownerKey) {
-    checkPathOwnership(input.declaredPaths, input.pathOwnership, input.ownerKey);
-  }
-
+function collectPromptSections(input: AssemblePromptInput): string[] {
   const sections: string[] = [];
   if (input.caveman.trim()) sections.push(input.caveman.trim());
 
@@ -151,7 +147,15 @@ export function assemblePrompt(input: AssemblePromptInput): AssembledPrompt {
   if (input.outputSchema?.trim()) {
     sections.push(`<output_schema>\n${input.outputSchema.trim()}\n</output_schema>`);
   }
+  return sections;
+}
 
+export function assemblePrompt(input: AssemblePromptInput): AssembledPrompt {
+  if (input.declaredPaths && input.pathOwnership && input.ownerKey) {
+    checkPathOwnership(input.declaredPaths, input.pathOwnership, input.ownerKey);
+  }
+
+  const sections = collectPromptSections(input);
   const text = sections.join("\n\n");
   const estTokens = estimateTokens(text);
   const cap = input.maxPromptTokens ?? readEnvCap();

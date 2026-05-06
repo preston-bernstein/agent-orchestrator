@@ -24,32 +24,22 @@
   "usedClassMembers": ["currentPrevHash"],
   "duplicates": {
     "enabled": true,
-    "mode": "mild",
-    "threshold": 15
+    "mode": "strict",
+    "threshold": 5
   },
   "health": {
-    "maxCognitive": 55,
-    "maxCyclomatic": 35,
+    "maxCognitive": 10,
+    "maxCyclomatic": 26,
     "maxCrap": 120,
     "ignore": [
       "src/cli/orchestrate.ts",
-      "src/workflows/supervisorBranch.ts",
-      "src/agents/supervisor.ts",
-      "src/config/managedRepos.ts",
       "src/scorecard/aggregate.ts",
-      "src/approval/index.ts",
-      "src/inngest/serve.ts",
-      "src/reviewer/index.ts",
-      "src/scorecard/index.ts",
-      "src/scorecard/format.ts",
-      "src/runs/loadSpec.ts",
-      "src/audit/verify.ts",
-      "src/workflows/integrationStep.ts"
+      "src/scorecard/index.ts"
     ]
   },
   "rules": {
-    "unused-dependencies": "warn",
-    "unused-dev-dependencies": "warn",
-    "unused-class-members": "warn"
+    "unused-dependencies": "error",
+    "unused-dev-dependencies": "error",
+    "unused-class-members": "error"
   }
 }

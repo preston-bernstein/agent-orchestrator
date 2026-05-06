@@ -7,6 +7,7 @@ import { mockPlannerCompletion } from "../../src/agents/planner.js";
 import { initRunContext } from "../../src/runs/orchestratorContext.js";
 import { atomicWriteJson } from "../../src/runs/state.js";
 import { verifyChain } from "../../src/audit/verify.js";
+import { SNAPSHOT } from "./fixtures.js";
 
 /**
  * Phase 8 closeout — Scenario E (refactor no-op, planner skip via O5).
@@ -26,13 +27,6 @@ import { verifyChain } from "../../src/audit/verify.js";
  */
 
 const tmpRoot = path.join(process.cwd(), "runs", "_test_scenario_E");
-
-const SNAPSHOT = {
-  docPath: "docs/playbook-expectations.md",
-  docSha256: "a".repeat(64),
-  vault_git_sha: "1507957",
-  vault_cut_date: "2026-05-04",
-};
 
 afterEach(async () => {
   await rm(tmpRoot, { recursive: true, force: true });

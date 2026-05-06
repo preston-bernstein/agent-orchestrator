@@ -24,35 +24,46 @@ function splitFrontMatter(raw: string): { yaml: string; body: string } {
   };
 }
 
+interface SimpleYamlCtx {
+  out: Record<string, unknown>;
+  playbook: Record<string, string>;
+  inPlaybook: boolean;
+}
+
+function parseSimpleYamlLine(line: string, ctx: SimpleYamlCtx): void {
+  const top = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
+  if (top && top[1] !== "PLAYBOOK_EXPECTS") {
+    ctx.inPlaybook = false;
+    const k = top[1] as string;
+    const val = top[2] ?? "";
+    ctx.out[k] = val.replace(/^["']|["']$/g, "");
+    return;
+  }
+  if (line.trim() === "PLAYBOOK_EXPECTS:") {
+    ctx.inPlaybook = true;
+    return;
+  }
+  if (!ctx.inPlaybook) return;
+  const ind = /^ {2}([a-z0-9_]+):\s*(.*)$/i.exec(line);
+  if (ind?.[1]) {
+    ctx.playbook[ind[1]] = (ind[2] ?? "").replace(/^["']|["']$/g, "");
+  }
+}
+
 /** Minimal YAML: top-level `key: value` + `PLAYBOOK_EXPECTS` indented block. */
 function parseSimpleYaml(yaml: string): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const playbook: Record<string, string> = {};
-  let inPlaybook = false;
+  const ctx: SimpleYamlCtx = {
+    out: {},
+    playbook: {},
+    inPlaybook: false,
+  };
   for (const line of yaml.split(/\r?\n/)) {
-    const top = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line);
-    if (top && top[1] !== "PLAYBOOK_EXPECTS") {
-      inPlaybook = false;
-      const k = top[1] as string;
-      const val = top[2] ?? "";
-      out[k] = val.replace(/^["']|["']$/g, "");
-      continue;
-    }
-    if (line.trim() === "PLAYBOOK_EXPECTS:") {
-      inPlaybook = true;
-      continue;
-    }
-    if (inPlaybook) {
-      const ind = /^ {2}([a-z0-9_]+):\s*(.*)$/i.exec(line);
-      if (ind?.[1]) {
-        playbook[ind[1]] = (ind[2] ?? "").replace(/^["']|["']$/g, "");
-      }
-    }
+    parseSimpleYamlLine(line, ctx);
   }
-  if (Object.keys(playbook).length > 0) {
-    out.PLAYBOOK_EXPECTS = playbook;
+  if (Object.keys(ctx.playbook).length > 0) {
+    ctx.out.PLAYBOOK_EXPECTS = ctx.playbook;
   }
-  return out;
+  return ctx.out;
 }
 
 export const ExpectationsSnapshotSchema = z.object({

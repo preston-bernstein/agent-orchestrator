@@ -98,6 +98,86 @@ function forbiddenSnapshotTouches(profileFlags: readonly string[], diffText: str
   return hits;
 }
 
+function reviewFilesInDiff(
+  paths: string[],
+  sup: SupervisorReviewerSlice,
+  input: ReviewerDeterministicInput,
+  findings: ReviewerFindingT[],
+): void {
+  const allowed = unionOwnershipGlobsForSupervisor(input.plan, sup.supervisorId);
+  const codegen = codegenGlobsForSupervisor(input.repos, sup.supervisorId);
+  const restricted = restrictedGlobsForSupervisor(input.repos, sup.supervisorId);
+
+  for (const file of paths) {
+    const inScope =
+      allowed.length === 0 ? true : allowed.some((g) => globMatch(file, g));
+    if (!inScope) {
+      findings.push({
+        severity: "error",
+        rule: "out-of-scope-edit",
+        file,
+        message: sliceMsg(`path not in path_ownership_map union for ${sup.supervisorId}`),
+      });
+    }
+    if (codegen.some((g) => globMatch(file, g))) {
+      findings.push({
+        severity: "error",
+        rule: "codegen-touched",
+        file,
+        message: sliceMsg("diff intersects codegen_paths / codegenGlobs"),
+      });
+    }
+    if (restricted.some((g) => globMatch(file, g))) {
+      findings.push({
+        severity: "error",
+        rule: "restricted-path",
+        file,
+        message: sliceMsg("diff intersects restricted_paths from _meta.md"),
+      });
+    }
+  }
+}
+
+function reviewOneSupervisor(
+  sup: SupervisorReviewerSlice,
+  input: ReviewerDeterministicInput,
+  findings: ReviewerFindingT[],
+  allHistory: GateInvocation[],
+): void {
+  allHistory.push(...sup.gateHistory);
+  pushGateFailures(sup.gateHistory, findings);
+
+  const paths = listUnifiedDiffRepoPaths(sup.diffText);
+  reviewFilesInDiff(paths, sup, input, findings);
+
+  const profile = input.repos[sup.supervisorId as SupervisorId]?.profile;
+  if (!profile) return;
+  const badFlags = forbiddenSnapshotTouches(profile.snapshotForbiddenFlags, sup.diffText);
+  for (const flag of badFlags) {
+    findings.push({
+      severity: "error",
+      rule: "silencing-not-fixing",
+      message: sliceMsg(`forbidden snapshot/test shortcut substring in patch: ${flag}`),
+    });
+  }
+}
+
+function integrationVerdictFindings(
+  integration: ReviewerDeterministicInput["integration"],
+  findings: ReviewerFindingT[],
+): void {
+  if (integration?.ran !== true) return;
+  const rec = integration.recommended_action;
+  if (rec !== "block_merge" && rec !== "human_clarify") return;
+  findings.push({
+    severity: "error",
+    rule: "integration-verdict",
+    message: sliceMsg(
+      `integration recommended_action=${rec} status=${integration.status ?? "?"}`,
+    ),
+  });
+}
+
 /**
  * Deterministic reviewer (vault `Build/Prompts/reviewer.md` §Phase 1 only).
  * No LLM — `pass_with_warnings` reserved for future heuristic slice.
@@ -106,68 +186,10 @@ export function runReviewerDeterministic(input: ReviewerDeterministicInput): Rev
   const findings: ReviewerFindingT[] = [];
   const allHistory: GateInvocation[] = [];
 
-  if (input.integration?.ran === true) {
-    const rec = input.integration.recommended_action;
-    if (rec === "block_merge" || rec === "human_clarify") {
-      findings.push({
-        severity: "error",
-        rule: "integration-verdict",
-        message: sliceMsg(
-          `integration recommended_action=${rec} status=${input.integration.status ?? "?"}`,
-        ),
-      });
-    }
-  }
+  integrationVerdictFindings(input.integration, findings);
 
   for (const sup of input.supervisors) {
-    allHistory.push(...sup.gateHistory);
-    pushGateFailures(sup.gateHistory, findings);
-
-    const paths = listUnifiedDiffRepoPaths(sup.diffText);
-    const allowed = unionOwnershipGlobsForSupervisor(input.plan, sup.supervisorId);
-    const codegen = codegenGlobsForSupervisor(input.repos, sup.supervisorId);
-    const restricted = restrictedGlobsForSupervisor(input.repos, sup.supervisorId);
-    const profile = input.repos[sup.supervisorId as SupervisorId]?.profile;
-
-    for (const file of paths) {
-      const inScope =
-        allowed.length === 0 ? true : allowed.some((g) => globMatch(file, g));
-      if (!inScope) {
-        findings.push({
-          severity: "error",
-          rule: "out-of-scope-edit",
-          file,
-          message: sliceMsg(`path not in path_ownership_map union for ${sup.supervisorId}`),
-        });
-      }
-      if (codegen.some((g) => globMatch(file, g))) {
-        findings.push({
-          severity: "error",
-          rule: "codegen-touched",
-          file,
-          message: sliceMsg("diff intersects codegen_paths / codegenGlobs"),
-        });
-      }
-      if (restricted.some((g) => globMatch(file, g))) {
-        findings.push({
-          severity: "error",
-          rule: "restricted-path",
-          file,
-          message: sliceMsg("diff intersects restricted_paths from _meta.md"),
-        });
-      }
-    }
-
-    if (profile) {
-      const badFlags = forbiddenSnapshotTouches(profile.snapshotForbiddenFlags, sup.diffText);
-      for (const flag of badFlags) {
-        findings.push({
-          severity: "error",
-          rule: "silencing-not-fixing",
-          message: sliceMsg(`forbidden snapshot/test shortcut substring in patch: ${flag}`),
-        });
-      }
-    }
+    reviewOneSupervisor(sup, input, findings, allHistory);
   }
 
   const gate_summary = aggregateGateSummary(allHistory);

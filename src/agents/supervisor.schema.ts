@@ -53,7 +53,8 @@ const SupervisorFixTarget = z.object({
   log_excerpt: z.string().max(800),
 });
 
-const SupervisorOutput = z.object({
+// Schema value is only needed for z.infer; ESLint treats that as type-only use.
+const _SupervisorOutputSchema = z.object({
   status: SupervisorStatus,
   rationale: z.string().max(200),
   pending_diff_path: z.string().optional(),
@@ -61,6 +62,6 @@ const SupervisorOutput = z.object({
   next_action: SupervisorNextAction,
   fix_targets: z.array(SupervisorFixTarget).default([]),
 });
-export type SupervisorOutputT = z.infer<typeof SupervisorOutput>;
+export type SupervisorOutputT = z.infer<typeof _SupervisorOutputSchema>;
 export type SupervisorTaskResultT = z.infer<typeof SupervisorTaskResult>;
 export type SupervisorFixTargetT = z.infer<typeof SupervisorFixTarget>;

@@ -93,6 +93,51 @@ describe("enforceFilesTouched (defensive scope check)", () => {
     expect(out.patch).toBe("");
   });
 
+  it("accepts files under `/**` ownership glob", () => {
+    const out = enforceFilesTouched(
+      {
+        status: "patch",
+        rationale: "ok",
+        patch: "x",
+        files_touched: ["src/main/java/auth/Foo.java"],
+        refusals: [],
+        context_request: [],
+      },
+      ["src/main/java/auth/**"],
+    );
+    expect(out.status).toBe("patch");
+  });
+
+  it("accepts files under suffix-`**` glob without slash (pathInGlob root** branch)", () => {
+    const out = enforceFilesTouched(
+      {
+        status: "patch",
+        rationale: "ok",
+        patch: "x",
+        files_touched: ["srcmain/extra.txt"],
+        refusals: [],
+        context_request: [],
+      },
+      ["srcmain**"],
+    );
+    expect(out.status).toBe("patch");
+  });
+
+  it("treats path equal to glob literal as in-lane", () => {
+    const out = enforceFilesTouched(
+      {
+        status: "patch",
+        rationale: "ok",
+        patch: "x",
+        files_touched: ["src/main/java/auth/**"],
+        refusals: [],
+        context_request: [],
+      },
+      ["src/main/java/auth/**"],
+    );
+    expect(out.status).toBe("patch");
+  });
+
   it("ignores non-patch statuses (no_change / refused / needs_more_context)", () => {
     const out = enforceFilesTouched(
       {

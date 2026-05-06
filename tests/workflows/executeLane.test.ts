@@ -15,15 +15,9 @@ import { atomicWriteJson } from "../../src/runs/state.js";
 import { verifyChain } from "../../src/audit/verify.js";
 import { loadManagedRepos } from "../../src/config/managedRepos.js";
 import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
+import { SNAPSHOT, SCENARIO_A_PLAN, OVERLAP_PLAN } from "./fixtures.js";
 
 const tmpRoot = path.join(process.cwd(), "runs", "_test_execute_lane");
-
-const SNAPSHOT = {
-  docPath: "docs/playbook-expectations.md",
-  docSha256: "a".repeat(64),
-  vault_git_sha: "1507957",
-  vault_cut_date: "2026-05-04",
-};
 
 const SPRING_META = `---
 stack: java-spring
@@ -80,25 +74,6 @@ function makeRun(opts: {
   return { ctx, runDir };
 }
 
-const SCENARIO_A_PLAN: PlannerOutputT = {
-  status: "ready",
-  rationale: "scenario A — single spring task, API-only",
-  tasks: [
-    {
-      id: "spring-T1",
-      spec_slug: "auth-feature",
-      repo: "spring-api",
-      supervisor: "spring",
-      title: "add auth endpoint",
-      paths: ["src/main/java/auth/**", "src/test/java/auth/**"],
-      depends_on: [],
-    },
-  ],
-  path_ownership_map: {
-    "spring-T1": ["src/main/java/auth/**", "src/test/java/auth/**"],
-  },
-  refusals: [],
-};
 
 describe("runExecuteLane — Phase 5 closeout (cli execute lane wiring)", () => {
   it("happy: resolves cwds from managed repos + delegates to supervisorBranch", async () => {
@@ -249,6 +224,92 @@ describe("runExecuteLane — Phase 5 closeout (cli execute lane wiring)", () => 
     );
     expect(audit).toMatch(/"step":"reviewer_deterministic"/);
     expect(verifyChain(ctx.audit_path).valid).toBe(true);
+  });
+
+  it("skips phase7 reviewer when aggregate not green (path overlap)", async () => {
+    const { ctx, runDir } = makeRun({
+      runId: "exec-lane-overlap",
+      cliFlags: { execute: true },
+    });
+    ctx.path_ownership_map = OVERLAP_PLAN.path_ownership_map;
+    const repos = await loadManagedRepos({
+      envRaw: "spring-api:/fake/spring-api",
+      readMeta: async () => SPRING_META,
+    });
+    const out = await runExecuteLane(
+      { ctx, plan: OVERLAP_PLAN, repos, runDir },
+      {
+        subagentCompletion: mockSubagentCompletion(),
+        fixSubagentCompletion: mockFixSubagentCompletion(),
+        exec: mockExec({ exit: 0 }),
+      },
+    );
+    expect(out.aggregateStatus).toBe("needs_human_clarify");
+    expect(out.phase7.kind).toBe("skipped");
+    if (out.phase7.kind !== "skipped") throw new Error("phase7");
+    expect(out.phase7.reason).toBe("aggregate_not_green");
+  });
+
+  it("skips approval when supervisor did not receive runDir (no pending.diff)", async () => {
+    const { ctx } = makeRun({
+      runId: "exec-lane-nodiff",
+      cliFlags: { execute: true },
+    });
+    const repos = await loadManagedRepos({
+      envRaw: "spring-api:/fake/spring-api",
+      readMeta: async () => SPRING_META,
+    });
+    const out = await runExecuteLane(
+      { ctx, plan: SCENARIO_A_PLAN, repos },
+      {
+        subagentCompletion: mockSubagentCompletion(
+          "diff --git a/src/main/java/auth/A.java b/...\n",
+          ["src/main/java/auth/A.java"],
+        ),
+        fixSubagentCompletion: mockFixSubagentCompletion(),
+        exec: mockExec({ exit: 0, stdout: "BUILD SUCCESS" }),
+      },
+    );
+    expect(out.aggregateStatus).toBe("green");
+    expect(out.phase7.kind).toBe("skipped");
+    if (out.phase7.kind !== "skipped") throw new Error("phase7");
+    expect(out.phase7.reason).toBe("no_pending_diff");
+  });
+
+  it("phase7 reviewer_fail when unified diff touches paths outside ownership", async () => {
+    const { ctx, runDir } = makeRun({
+      runId: "exec-lane-rev-fail",
+      cliFlags: { execute: true },
+    });
+    const repos = await loadManagedRepos({
+      envRaw: "spring-api:/fake/spring-api",
+      readMeta: async () => SPRING_META,
+    });
+    const out = await runExecuteLane(
+      { ctx, plan: SCENARIO_A_PLAN, repos, runDir },
+      {
+        subagentCompletion: mockSubagentCompletion(
+          [
+            "diff --git a/src/main/java/auth/A.java b/src/main/java/auth/A.java\n",
+            "+++ b/src/main/java/auth/A.java\n",
+            "+ok\n",
+            "diff --git a/src/billing/X.java b/src/billing/X.java\n",
+            "+++ b/src/billing/X.java\n",
+            "+x\n",
+          ].join(""),
+          ["src/main/java/auth/A.java"],
+        ),
+        fixSubagentCompletion: mockFixSubagentCompletion(),
+        exec: mockExec({ exit: 0, stdout: "BUILD SUCCESS" }),
+      },
+    );
+    expect(out.aggregateStatus).toBe("green");
+    expect(out.phase7.kind).toBe("reviewer_fail");
+    if (out.phase7.kind !== "reviewer_fail") throw new Error("phase7");
+    expect(out.phase7.reviewer.status).toBe("fail");
+    expect(
+      out.phase7.reviewer.findings.some((f) => f.rule === "out-of-scope-edit"),
+    ).toBe(true);
   });
 });
 

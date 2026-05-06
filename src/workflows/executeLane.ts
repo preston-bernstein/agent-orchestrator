@@ -10,6 +10,7 @@ import { formatApprovalArtifacts } from "../approval/formatApprovalArtifacts.js"
 import {
   runReviewerDeterministic,
   type SupervisorReviewerSlice,
+  type ReviewerIntegrationVerdict,
 } from "../reviewer/deterministic.js";
 import type { ReviewerOutputT } from "../reviewer/schema.js";
 import {
@@ -102,6 +103,158 @@ function plannedSupervisorIds(plan: PlannerOutputT): SupervisorId[] {
   return [...ids];
 }
 
+function validatePlannedRepos(planned: SupervisorId[], repos: RunExecuteLaneInput["repos"]): void {
+  const registered = Object.keys(repos);
+  for (const sup of planned) {
+    if (!repos[sup]) {
+      throw new MissingManagedRepoError(sup, registered);
+    }
+  }
+}
+
+async function collectSupervisorReviewerSlices(
+  branch: SupervisorBranchResult,
+  plan: PlannerOutputT,
+): Promise<SupervisorReviewerSlice[]> {
+  const slices: SupervisorReviewerSlice[] = [];
+  for (const s of branch.supervisors) {
+    const p = s.result.output.pending_diff_path;
+    if (!p || s.result.output.status !== "done") continue;
+    const diffText = await readFile(p, "utf8");
+    slices.push({
+      supervisorId: s.supervisorId,
+      stackId: s.stack,
+      diffText,
+      gateHistory: s.result.gate_history,
+      taskSummaries: s.result.output.task_results.map((tr) => ({
+        task_id: tr.task_id,
+        title: plan.tasks.find((t) => t.id === tr.task_id)?.title ?? tr.task_id,
+        state: tr.state,
+        fix_loop_count: tr.fix_loop_count,
+      })),
+    });
+  }
+  return slices;
+}
+
+function reviewerIntegrationSlice(
+  integration: IntegrationStepResult,
+): ReviewerIntegrationVerdict {
+  if (integration.ran !== true) return { ran: false };
+  return {
+    ran: true,
+    recommended_action: integration.output.recommended_action,
+    status: integration.output.status,
+  };
+}
+
+async function appendApprovalArtifacts(
+  slices: SupervisorReviewerSlice[],
+  input: RunExecuteLaneInput,
+  runDirResolved: string,
+  reviewer: ReviewerOutputT,
+  integration: IntegrationStepResult,
+  auditWriter: AuditWriter,
+): Promise<string[]> {
+  const approvalPromptPaths: string[] = [];
+  for (const sl of slices) {
+    const { mdPath } = formatApprovalArtifacts({
+      runId: input.ctx.run_id,
+      runDir: runDirResolved,
+      supervisorId: sl.supervisorId,
+      diffText: sl.diffText,
+      reviewer,
+      plan: input.plan,
+      integrationNote:
+        integration.ran === true
+          ? `${integration.output.status} · ${integration.output.recommended_action}`
+          : undefined,
+    });
+    approvalPromptPaths.push(mdPath);
+    auditWriter.write({
+      run_id: input.ctx.run_id,
+      step: "approval_prompt_written",
+      agent: "approval",
+      decisions: [`supervisor=${sl.supervisorId}`, `path=${mdPath}`],
+      cwd: runDirResolved,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  return approvalPromptPaths;
+}
+
+async function executeLanePhase7WhenGreen(
+  input: RunExecuteLaneInput,
+  auditWriter: AuditWriter,
+  result: SupervisorBranchResult,
+  integration: IntegrationStepResult,
+  runDirResolved: string,
+  flags: Record<string, unknown>,
+): Promise<RunExecuteLaneResult> {
+  const slices = await collectSupervisorReviewerSlices(result, input.plan);
+  if (slices.length === 0) {
+    return {
+      ...result,
+      integration,
+      phase7: { kind: "skipped", reason: "no_pending_diff" },
+    };
+  }
+
+  const reviewer = runReviewerDeterministic({
+    plan: input.plan,
+    supervisors: slices,
+    repos: input.repos,
+    integration: reviewerIntegrationSlice(integration),
+  });
+
+  auditWriter.write({
+    run_id: input.ctx.run_id,
+    step: "reviewer_deterministic",
+    agent: "reviewer",
+    decisions: [
+      `status=${reviewer.status}`,
+      `findings=${reviewer.findings.length}`,
+      `gate_fast=${reviewer.gate_summary.fast}`,
+    ],
+    timestamp: new Date().toISOString(),
+  });
+
+  if (reviewer.status === "fail") {
+    return {
+      ...result,
+      integration,
+      phase7: { kind: "reviewer_fail", reviewer },
+    };
+  }
+
+  if (flags.danger_apply === true) {
+    return {
+      ...result,
+      integration,
+      phase7: { kind: "cleared", reviewer },
+    };
+  }
+
+  const approvalPromptPaths = await appendApprovalArtifacts(
+    slices,
+    input,
+    runDirResolved,
+    reviewer,
+    integration,
+    auditWriter,
+  );
+
+  return {
+    ...result,
+    integration,
+    phase7: {
+      kind: "paused_for_approval",
+      reviewer,
+      approval_prompt_paths: approvalPromptPaths,
+    },
+  };
+}
+
 export async function runExecuteLane(
   input: RunExecuteLaneInput,
   deps: RunExecuteLaneDeps,
@@ -109,12 +262,7 @@ export async function runExecuteLane(
   supervisorSpawnGuard(input.ctx.cli_flags);
 
   const planned = plannedSupervisorIds(input.plan);
-  const registered = Object.keys(input.repos);
-  for (const sup of planned) {
-    if (!input.repos[sup]) {
-      throw new MissingManagedRepoError(sup, registered);
-    }
-  }
+  validatePlannedRepos(planned, input.repos);
 
   const cwds = cwdsFromManagedRepos(input.repos);
   const stackOverlays: Record<string, string> = {};
@@ -174,110 +322,12 @@ export async function runExecuteLane(
     };
   }
 
-  const slices: SupervisorReviewerSlice[] = [];
-  for (const s of result.supervisors) {
-    const p = s.result.output.pending_diff_path;
-    if (!p || s.result.output.status !== "done") continue;
-    const diffText = await readFile(p, "utf8");
-    slices.push({
-      supervisorId: s.supervisorId,
-      stackId: s.stack,
-      diffText,
-      gateHistory: s.result.gate_history,
-      taskSummaries: s.result.output.task_results.map((tr) => ({
-        task_id: tr.task_id,
-        title:
-          input.plan.tasks.find((t) => t.id === tr.task_id)?.title ?? tr.task_id,
-        state: tr.state,
-        fix_loop_count: tr.fix_loop_count,
-      })),
-    });
-  }
-
-  if (slices.length === 0) {
-    return {
-      ...result,
-      integration,
-      phase7: { kind: "skipped", reason: "no_pending_diff" },
-    };
-  }
-
-  const integrationVerdict =
-    integration.ran !== true
-      ? { ran: false as const }
-      : {
-          ran: true as const,
-          recommended_action: integration.output.recommended_action,
-          status: integration.output.status,
-        };
-
-  const reviewer = runReviewerDeterministic({
-    plan: input.plan,
-    supervisors: slices,
-    repos: input.repos,
-    integration: integrationVerdict,
-  });
-
-  auditWriter.write({
-    run_id: input.ctx.run_id,
-    step: "reviewer_deterministic",
-    agent: "reviewer",
-    decisions: [
-      `status=${reviewer.status}`,
-      `findings=${reviewer.findings.length}`,
-      `gate_fast=${reviewer.gate_summary.fast}`,
-    ],
-    timestamp: new Date().toISOString(),
-  });
-
-  if (reviewer.status === "fail") {
-    return {
-      ...result,
-      integration,
-      phase7: { kind: "reviewer_fail", reviewer },
-    };
-  }
-
-  if (flags.danger_apply === true) {
-    return {
-      ...result,
-      integration,
-      phase7: { kind: "cleared", reviewer },
-    };
-  }
-
-  const approvalPromptPaths: string[] = [];
-  for (const sl of slices) {
-    const { mdPath } = formatApprovalArtifacts({
-      runId: input.ctx.run_id,
-      runDir: runDirResolved,
-      supervisorId: sl.supervisorId,
-      diffText: sl.diffText,
-      reviewer,
-      plan: input.plan,
-      integrationNote:
-        integration.ran === true
-          ? `${integration.output.status} · ${integration.output.recommended_action}`
-          : undefined,
-    });
-    approvalPromptPaths.push(mdPath);
-    auditWriter.write({
-      run_id: input.ctx.run_id,
-      step: "approval_prompt_written",
-      agent: "approval",
-      decisions: [`supervisor=${sl.supervisorId}`, `path=${mdPath}`],
-      cwd: runDirResolved,
-      timestamp: new Date().toISOString(),
-    });
-  }
-
-  return {
-    ...result,
+  return executeLanePhase7WhenGreen(
+    input,
+    auditWriter,
+    result,
     integration,
-    phase7: {
-      kind: "paused_for_approval",
-      reviewer,
-      approval_prompt_paths: approvalPromptPaths,
-    },
-  };
+    runDirResolved,
+    flags,
+  );
 }

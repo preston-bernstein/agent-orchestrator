@@ -90,6 +90,39 @@ function stripFillers(s: string): string {
   return out;
 }
 
+function classifyCompressLine(
+  line: string,
+  inFence: boolean,
+): { entry: { line: string; isProtected: boolean }; nextInFence: boolean } {
+  const fenceToggle = /^\s*```/.test(line);
+  if (fenceToggle) {
+    return { entry: { line, isProtected: true }, nextInFence: !inFence };
+  }
+  if (inFence || STACK_LINE_RE.test(line)) {
+    return { entry: { line, isProtected: true }, nextInFence: inFence };
+  }
+  const transformed = withInlineProtection(line, (free) => stripFillers(free));
+  const normalized = transformed.replace(/[ \t]+/g, " ").replace(/^ | $/g, "");
+  return { entry: { line: normalized, isProtected: false }, nextInFence: inFence };
+}
+
+function collapseCompressedBlankRuns(
+  processed: { line: string; isProtected: boolean }[],
+): string[] {
+  const out: string[] = [];
+  let blankRun = 0;
+  for (const { line, isProtected } of processed) {
+    if (!isProtected && line === "") {
+      blankRun++;
+      if (blankRun > 1) continue;
+    } else {
+      blankRun = 0;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
 /**
  * Walk lines; classify:
  *   - inside triple-backtick fence → verbatim
@@ -104,32 +137,12 @@ function compress(text: string): string {
   const processed: { line: string; isProtected: boolean }[] = [];
   let inFence = false;
   for (const line of lines) {
-    const fenceToggle = /^\s*```/.test(line);
-    if (fenceToggle) {
-      processed.push({ line, isProtected: true });
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence || STACK_LINE_RE.test(line)) {
-      processed.push({ line, isProtected: true });
-      continue;
-    }
-    const transformed = withInlineProtection(line, (free) => stripFillers(free));
-    const normalized = transformed.replace(/[ \t]+/g, " ").replace(/^ | $/g, "");
-    processed.push({ line: normalized, isProtected: false });
+    const { entry, nextInFence } = classifyCompressLine(line, inFence);
+    processed.push(entry);
+    inFence = nextInFence;
   }
 
-  const out: string[] = [];
-  let blankRun = 0;
-  for (const { line, isProtected } of processed) {
-    if (!isProtected && line === "") {
-      blankRun++;
-      if (blankRun > 1) continue;
-    } else {
-      blankRun = 0;
-    }
-    out.push(line);
-  }
+  const out = collapseCompressedBlankRuns(processed);
   let joined = out.join("\n").replace(/\n{3,}/g, "\n\n");
   joined = joined.replace(/^\n+/, "").replace(/\n+$/, "");
   return joined;

@@ -64,13 +64,11 @@ async function defaultReadTasks(p: string): Promise<string> {
   return readFile(p, "utf8");
 }
 
-export async function plannerDryRun(
-  input: PlannerDryRunInput,
-): Promise<PlannerDryRunResult> {
-  const readTasks = input.readTasks ?? defaultReadTasks;
-  const gitStatus = input.gitStatus ?? defaultGitStatus;
-
-  for (const spec of input.specs) {
+async function plannerSpecsAllComplete(
+  specs: readonly PlannerDryRunSpec[],
+  readTasks: NonNullable<PlannerDryRunInput["readTasks"]>,
+): Promise<PlannerDryRunResult | null> {
+  for (const spec of specs) {
     let raw: string;
     try {
       raw = await readTasks(spec.tasks_path);
@@ -86,8 +84,14 @@ export async function plannerDryRun(
       return { skip: false, reason: `open tasks: ${spec.slug}` };
     }
   }
+  return null;
+}
 
-  for (const spec of input.specs) {
+async function plannerReposWorktreesClean(
+  specs: readonly PlannerDryRunSpec[],
+  gitStatus: NonNullable<PlannerDryRunInput["gitStatus"]>,
+): Promise<PlannerDryRunResult | null> {
+  for (const spec of specs) {
     let status: string;
     try {
       status = await gitStatus(spec.repo);
@@ -98,15 +102,36 @@ export async function plannerDryRun(
       return { skip: false, reason: `working tree dirty: ${spec.repo}` };
     }
   }
+  return null;
+}
 
-  if (input.attempt_counter) {
-    const stuck = Object.entries(input.attempt_counter).find(
-      ([, n]) => typeof n === "number" && n > 0,
-    );
-    if (stuck) {
-      return { skip: false, reason: `prior fix-loop pending: ${stuck[0]}` };
-    }
+function plannerAttemptCounterClear(
+  counter: Readonly<Record<string, number>> | undefined,
+): PlannerDryRunResult | null {
+  if (!counter) return null;
+  const stuck = Object.entries(counter).find(
+    ([, n]) => typeof n === "number" && n > 0,
+  );
+  if (stuck) {
+    return { skip: false, reason: `prior fix-loop pending: ${stuck[0]}` };
   }
+  return null;
+}
+
+export async function plannerDryRun(
+  input: PlannerDryRunInput,
+): Promise<PlannerDryRunResult> {
+  const readTasks = input.readTasks ?? defaultReadTasks;
+  const gitStatus = input.gitStatus ?? defaultGitStatus;
+
+  const tasksOutcome = await plannerSpecsAllComplete(input.specs, readTasks);
+  if (tasksOutcome) return tasksOutcome;
+
+  const gitOutcome = await plannerReposWorktreesClean(input.specs, gitStatus);
+  if (gitOutcome) return gitOutcome;
+
+  const attemptOutcome = plannerAttemptCounterClear(input.attempt_counter);
+  if (attemptOutcome) return attemptOutcome;
 
   return { skip: true, reason: "all tasks checked, tree clean, no pending fixes" };
 }
