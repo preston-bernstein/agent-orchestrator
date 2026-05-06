@@ -1,11 +1,12 @@
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import path from "node:path";
+import { readFileSync, rmSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { formatApprovalArtifacts } from "../../src/approval/formatApprovalArtifacts.js";
-import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
-import { ReviewerOutput } from "../../src/reviewer/schema.js";
-
-const tmp = path.join(process.cwd(), "runs", "_test_approval_fmt");
+import {
+  approvalTmpDir as tmp,
+  mkdirTmp,
+  mkPlan,
+  reviewerPass,
+} from "./formatApprovalArtifacts.fixtures.js";
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
@@ -13,30 +14,19 @@ afterEach(() => {
 
 describe("approval/formatApprovalArtifacts", () => {
   it("writes md + json w/ diff_hash", () => {
-    mkdirSync(tmp, { recursive: true });
-    const plan: PlannerOutputT = {
-      status: "ready",
-      rationale: "r",
-      tasks: [
-        {
-          id: "spring-T1",
-          spec_slug: "feat",
-          repo: "spring-api",
-          supervisor: "spring",
-          title: "task",
-          paths: ["src/**"],
-          depends_on: [],
-        },
-      ],
-      path_ownership_map: { "spring-T1": ["src/**"] },
-      refusals: [],
-    };
-    const reviewer = ReviewerOutput.parse({
-      status: "pass",
-      rationale: "ok",
-      findings: [],
-      gate_summary: { fast: "pass", heavy: "skipped" },
-    });
+    mkdirTmp();
+    const plan = mkPlan([
+      {
+        id: "spring-T1",
+        spec_slug: "feat",
+        repo: "spring-api",
+        supervisor: "spring",
+        title: "task",
+        paths: ["src/**"],
+        depends_on: [],
+      },
+    ]);
+    const reviewer = reviewerPass();
     const diffText = [
       "diff --git a/src/A.java b/src/A.java\n",
       "+++ b/src/A.java\n",
@@ -55,5 +45,46 @@ describe("approval/formatApprovalArtifacts", () => {
     expect(readFileSync(jsonPath, "utf8")).toContain('"diff_hash"');
     expect(payload.diff_hash).toHaveLength(64);
     expect(payload.supervisor).toBe("spring");
+    expect(payload.integration_note).toBe("compatible · proceed");
+    expect(payload.pending_diff_rel).toBe("spring/pending.diff");
+  });
+
+});
+
+describe("approval/formatApprovalArtifacts churn summary", () => {
+  it("aggregates +/- churn across multiple files (md diff stat line)", () => {
+    mkdirTmp();
+    const plan = mkPlan([
+      {
+        id: "spring-T1",
+        spec_slug: "feat",
+        repo: "spring-api",
+        supervisor: "spring",
+        title: "task",
+        paths: ["src/**"],
+        depends_on: [],
+      },
+    ]);
+    const reviewer = reviewerPass();
+    const diffText = [
+      "diff --git a/src/A.java b/src/A.java\n",
+      "+++ b/src/A.java\n",
+      "+a1\n",
+      "-a0\n",
+      "diff --git a/src/B.java b/src/B.java\n",
+      "+++ b/src/B.java\n",
+      "+b1\n",
+      "-b0\n",
+    ].join("");
+    const { mdPath } = formatApprovalArtifacts({
+      runId: "run-churn",
+      runDir: tmp,
+      supervisorId: "spring",
+      diffText,
+      reviewer,
+      plan,
+    });
+    const md = readFileSync(mdPath, "utf8");
+    expect(md).toMatch(/Diff: `2\+\/2-`/);
   });
 });

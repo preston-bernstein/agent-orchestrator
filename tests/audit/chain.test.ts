@@ -69,7 +69,9 @@ describe("AuditWriter + verifyChain", () => {
       expect(result.reason).toMatch(/hash mismatch/);
     }
   });
+});
 
+describe("verifyChain mutation cases", () => {
   it("verifyChain detects deleted record via prev_hash mismatch", async () => {
     await mkdir(tmp, { recursive: true });
     const auditPath = path.join(tmp, "audit.jsonl");

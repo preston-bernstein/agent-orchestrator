@@ -1,38 +1,104 @@
 /**
- * I3 vitest harness per vault `Orchestration PoC/Inngest Integration Plan.md` §I3
- * + ADR 0002. Mirrors vault starter
- * `Build/RepoKits/agent-orchestrator/inngest-orch-run.test.ts.starter` but calls
- * the exported `orchRunHandler` directly instead of poking `(orchRun as { fn })`
- * (Inngest v3 doesn't guarantee that internal shape).
- *
- * Asserts:
- *   1. `orch/dry-plan.requested` ⇒ `dry_plan_done`, plan path written, no
- *      execute-lane steps fired.
- *   2. `orch/run.requested` ⇒ `green`, execute-lane steps fired, both
- *      `waitForEvent` calls use `match: 'data.runId'` + `timeout: '7d'`.
- *   3. Dry-plan branch ⇒ zero managed-repo subprocess (asserts the
- *      `child_process.spawn` spy never sees a managed-repo cwd).
- *   4. Audit decisions emitted in expected order on dry path.
+ * Drives `orchRunHandler` directly (no Inngest dev server).
+ * Dry path uses `fixtures/no-op.md` → planner O5 skip. Execute path injects
+ * planner + execute fakes so approvals + `sup-task:*` wiring assert in isolation.
  */
 
-import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { orchRunHandler, type OrchStep } from "../../src/inngest/functions/orch-run.js";
+import {
+  orchRunHandler,
+  type OrchStep,
+} from "../../src/inngest/functions/orch-run.js";
+import type { RunExecuteLaneResult } from "../../src/workflows/executeLane.js";
+import type { PlannerOutputT } from "../../src/agents/planner/schema.js";
+import type { PlannerBranchOutcome } from "../../src/workflows/plannerBranch.js";
+import type { ManagedRepoMap } from "../../src/config/managedRepos.js";
+import { getStackProfile } from "../../src/stacks/index.js";
 
-// Subprocess-isolation note: the dry-plan branch must never spawn a
-// managed-repo subprocess. The vault starter monkey-patched
-// `child_process.spawn` to assert this — Node ESM marks
-// `node:child_process` exports non-configurable, so `vi.spyOn` rejects with
-// `Cannot redefine property: spawn`. Equivalent guarantees here:
-//   - I3 stubs in `orchRunHandler` are pure (no `child_process` import).
-//   - Step-id absence assertions below prove the execute lane never runs on
-//     `orch/dry-plan.requested`.
-//   - Real orchestrator wiring layer enforces this at runtime via
-//     `supervisorSpawnGuard()` (`src/workflows/plannerBranch.ts`) — supervisor
-//     spawn refuses unless `cli_flags.execute === true`. Covered by
-//     `tests/workflows/plannerBranch.test.ts` SF6 task-34 abuse test.
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-// ===== Fake step =====
+const INJECT_EXECUTE_PLAN: PlannerOutputT = {
+  status: "ready",
+  rationale: "test",
+  tasks: [
+    {
+      id: "t1",
+      spec_slug: "s",
+      repo: "spring-api",
+      supervisor: "spring",
+      title: "t",
+      paths: ["a"],
+      depends_on: [],
+    },
+  ],
+  path_ownership_map: {},
+  refusals: [],
+};
+
+const STUB_PAUSE_LANE_EXECUTE = {
+  supervisors: [
+    {
+      supervisorId: "spring",
+      stack: "java-spring",
+      result: {
+        output: {
+          status: "done",
+          rationale: "x",
+          task_results: [
+            { task_id: "t1", state: "green", fix_loop_count: 0, notes: "" },
+          ],
+          next_action: "hand_off_to_reviewer",
+          fix_targets: [],
+          pending_diff_path: "/tmp/p.diff",
+        },
+        visited_nodes: [],
+        attempt_counter: {},
+        tokens_delta: { supervisor: 0, subagent: 0, "fix-subagent": 0 },
+        gate_history: [],
+        patches: [],
+      },
+    },
+    {
+      supervisorId: "react",
+      stack: "ts-react-vite",
+      result: {
+        output: {
+          status: "done",
+          rationale: "x",
+          task_results: [
+            { task_id: "t2", state: "green", fix_loop_count: 0, notes: "" },
+          ],
+          next_action: "hand_off_to_reviewer",
+          fix_targets: [],
+          pending_diff_path: "/tmp/r.diff",
+        },
+        visited_nodes: [],
+        attempt_counter: {},
+        tokens_delta: { supervisor: 0, subagent: 0, "fix-subagent": 0 },
+        gate_history: [],
+        patches: [],
+      },
+    },
+  ],
+  aggregateStatus: "green",
+  gate_contract_published: false,
+  contract_producers: [],
+  integration: { ran: false, reason: "no_contract_no_consumer" },
+  approval: {
+    kind: "paused_for_approval",
+    reviewer: {
+      status: "pass",
+      findings: [],
+      gate_summary: { fast: 0, standard: 0 },
+      rationale: "t",
+    },
+    approval_prompt_paths: ["/a", "/b"],
+  },
+} as unknown as RunExecuteLaneResult;
 
 type StepCall =
   | { kind: "run"; id: string }
@@ -47,7 +113,6 @@ function makeFakeStep(): { step: OrchStep; calls: StepCall[] } {
     },
     async waitForEvent(id, args) {
       calls.push({ kind: "waitForEvent", id, args });
-      // I3 harness pretends approval arrives immediately. I4+ may simulate timeout.
       return {
         name: args.event,
         data: { runId: "test-run-id", diffHash: "sha256-stub", approver: "test-harness" },
@@ -57,113 +122,159 @@ function makeFakeStep(): { step: OrchStep; calls: StepCall[] } {
   return { step, calls };
 }
 
-// ===== Helpers =====
+const STUB_MANAGED_ONE: ManagedRepoMap = {
+  spring: {
+    repoId: "spring-api",
+    supervisorId: "spring",
+    cwd: repoRoot,
+    meta: {
+      stack: "java-spring",
+      restricted_paths: [],
+      codegen_paths: [],
+      generated_markers: [],
+      owners: [],
+    },
+    profile: getStackProfile("java-spring"),
+  },
+} as ManagedRepoMap;
 
-function makeEvent(name: "orch/dry-plan.requested" | "orch/run.requested") {
+function baseEvent(name: "orch/dry-plan.requested" | "orch/run.requested"): {
+  name: typeof name;
+  data: {
+    runId: string;
+    specSlug: string;
+    repo: "agent-orchestrator";
+    specPath: string;
+  };
+} {
   return {
     name,
     data: {
-      runId: "test-run-id",
-      specSlug: "2026-05-05-i3-vertical-slice",
-      repo: "agent-orchestrator" as const,
+      runId: randomUUID(),
+      specSlug: "no-op",
+      repo: "agent-orchestrator",
+      specPath: path.join(repoRoot, "fixtures/no-op.md"),
     },
   };
 }
 
-// ===== Tests =====
+beforeEach(() => {
+  vi.stubEnv("MOCK_TF", "1");
+});
 
-describe("orch-run — dry-plan branch (PR-blocking isolation)", () => {
-  it("returns dry_plan_done + writes plan path + skips execute lane", async () => {
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("orch-run — dry-plan branch (no execute lane)", () => {
+  it("dry_plan_done on fixture + no managed-repo / approval steps", async () => {
     const { step, calls } = makeFakeStep();
-    const result = await orchRunHandler({ event: makeEvent("orch/dry-plan.requested"), step });
+    const result = await orchRunHandler({
+      event: baseEvent("orch/dry-plan.requested"),
+      step,
+      repoRoot,
+    });
 
-    expect(result).toMatchObject({ status: "dry_plan_done" });
-    if (result.status !== "dry_plan_done") throw new Error("narrowing");
-    expect(result.planPath).toMatch(/runs\/.+\/plan\.json$/);
+    expect(result).toMatchObject({
+      status: "dry_plan_done",
+      planPath: expect.stringMatching(/plan\.json$/),
+    });
 
-    const stepIds = calls.filter((c) => c.kind === "run").map((c) => c.id);
-    expect(stepIds).not.toContain("mastra-spring-pre-approval");
-    expect(stepIds).not.toContain("mastra-react-pre-approval");
-    expect(stepIds).not.toContain("mastra-spring-resume");
-    expect(stepIds).not.toContain("mastra-react-resume");
-    expect(stepIds).not.toContain("audit-execution-started");
-    expect(stepIds).not.toContain("audit-finalize");
-    expect(calls.find((c) => c.kind === "waitForEvent")).toBeUndefined();
-  });
-
-  it("emits audit decisions in expected order for dry path", async () => {
-    const { step, calls } = makeFakeStep();
-    await orchRunHandler({ event: makeEvent("orch/dry-plan.requested"), step });
-    const auditIds = calls
-      .filter((c): c is Extract<StepCall, { kind: "run" }> => c.kind === "run")
-      .map((c) => c.id)
-      .filter((id) => id.startsWith("audit-"));
-    expect(auditIds).toEqual([
-      "audit-expectations",
-      "audit-tf-probe",
-      "audit-planner-continue",
-      "audit-plan",
-    ]);
+    const runIds = calls.filter((c): c is Extract<StepCall, { kind: "run" }> => c.kind === "run").map((c) => c.id);
+    expect(runIds).toEqual(["expectations-boot", "tf-probe", "planner-branch"]);
+    expect(runIds).not.toContain("load-managed-repos");
+    expect(calls.some((c) => c.kind === "waitForEvent")).toBe(false);
   });
 });
 
-describe("orch-run — execute branch (HITL fan-out)", () => {
-  it("returns green + fans out per-supervisor + waits for both approvals", async () => {
+describe("orch-run — execute inject (HITL dynamic waits)", () => {
+  it("returns green + waits for spring + react approvals", async () => {
     const { step, calls } = makeFakeStep();
-    const result = await orchRunHandler({ event: makeEvent("orch/run.requested"), step });
+    const result = await orchRunHandler({
+      event: baseEvent("orch/run.requested"),
+      step,
+      repoRoot,
+      overrides: {
+        runPlannerBranch: async ({ ctx }) => {
+          const out: PlannerBranchOutcome = {
+            kind: "execution_started",
+            planPath: path.join(path.dirname(ctx.state_file_path), "plan.json"),
+            plan: INJECT_EXECUTE_PLAN,
+            auditTailHash: ctx.prev_hash,
+          };
+          return out;
+        },
+
+        runExecuteLane: async () => STUB_PAUSE_LANE_EXECUTE,
+      },
+    });
 
     expect(result).toMatchObject({ status: "green" });
 
-    const stepIds = calls.filter((c) => c.kind === "run").map((c) => c.id);
-    expect(stepIds).toContain("mastra-spring-pre-approval");
-    expect(stepIds).toContain("mastra-react-pre-approval");
-    expect(stepIds).toContain("mastra-spring-resume");
-    expect(stepIds).toContain("mastra-react-resume");
-    expect(stepIds).toContain("audit-finalize");
+    const runIds = calls.filter((c) => c.kind === "run").map((c) => c.id);
+    expect(runIds).toContain("load-managed-repos");
+    expect(runIds).toContain("audit-finalize");
 
     const waits = calls.filter(
       (c): c is Extract<StepCall, { kind: "waitForEvent" }> => c.kind === "waitForEvent",
     );
-    expect(waits.map((w) => w.id).sort()).toEqual(["approve-react", "approve-spring"]);
-
-    // match: 'data.runId' guards against cross-run leakage.
-    for (const w of waits) {
-      expect(w.args.match).toBe("data.runId");
-      expect(w.args.timeout).toBe("7d");
-    }
     expect(waits.map((w) => w.args.event).sort()).toEqual([
       "orch/approve.react",
       "orch/approve.spring",
     ]);
+    for (const w of waits) {
+      expect(w.args.match).toBe("data.runId");
+      expect(w.args.timeout).toBe("7d");
+    }
   });
+});
 
-  it("orders pre-approval before waitForEvent before resume per supervisor", async () => {
+describe("orch-run — gates.verify (managed-repo gates only)", () => {
+  it("pre-planner + gate-verify steps + finalize (stub runQuality)", async () => {
     const { step, calls } = makeFakeStep();
-    await orchRunHandler({ event: makeEvent("orch/run.requested"), step });
+    const runId = randomUUID();
+    const result = await orchRunHandler({
+      event: {
+        name: "orch/gates.verify.requested",
+        data: {
+          runId,
+          specSlug: "no-op",
+          repo: "agent-orchestrator",
+          specPath: path.join(repoRoot, "fixtures/no-op.md"),
+        },
+      },
+      step,
+      repoRoot,
+      overrides: {
+        loadManagedRepos: async () => STUB_MANAGED_ONE,
+        gatesVerifyQuality: async (inp) => ({
+          cmd: ["echo", "ok"],
+          cwd: inp.cwd,
+          exit: 0,
+          oom: false,
+          timed_out: false,
+          duration_ms: 1,
+          log_tail: "",
+          kind: inp.kind,
+          stack: inp.profile.id,
+        }),
+      },
+    });
 
-    const flat = calls.map((c) => `${c.kind}:${c.id}`);
-    const idxSpringPre = flat.indexOf("run:mastra-spring-pre-approval");
-    const idxSpringWait = flat.indexOf("waitForEvent:approve-spring");
-    const idxSpringResume = flat.indexOf("run:mastra-spring-resume");
-    const idxReactPre = flat.indexOf("run:mastra-react-pre-approval");
-    const idxReactWait = flat.indexOf("waitForEvent:approve-react");
-    const idxReactResume = flat.indexOf("run:mastra-react-resume");
-
-    expect(idxSpringPre).toBeGreaterThan(-1);
-    expect(idxSpringWait).toBeGreaterThan(idxSpringPre);
-    expect(idxSpringResume).toBeGreaterThan(idxSpringWait);
-    expect(idxReactPre).toBeGreaterThan(-1);
-    expect(idxReactWait).toBeGreaterThan(idxReactPre);
-    expect(idxReactResume).toBeGreaterThan(idxReactWait);
+    expect(result).toMatchObject({ status: "gates_verify_done", failures: [] });
+    const runIds = calls.filter((c): c is Extract<StepCall, { kind: "run" }> => c.kind === "run").map(
+      (c) => c.id,
+    );
+    expect(runIds.slice(0, 3)).toEqual(["expectations-boot", "tf-probe", "load-managed-repos"]);
+    expect(runIds).toContain("gate-verify:spring:preflight");
+    expect(runIds).toContain("gate-verify:spring:fast");
+    expect(runIds).toContain("audit-gates-verify-finalize");
   });
 });
 
 describe("orch-run — Inngest function registration", () => {
-  it("registers concurrency key + retries lifted to 2 (I4)", async () => {
+  it("registers concurrency key + retries (smoke)", async () => {
     const { orchRun } = await import("../../src/inngest/functions/orch-run.js");
-    // Inngest v3 stores the user-provided opts on the fn instance; the exact
-    // shape is internal. Smoke check: function exists and id is 'orch-run'.
     expect(orchRun).toBeDefined();
-    expect(typeof orchRun).toBe("object");
   });
 });

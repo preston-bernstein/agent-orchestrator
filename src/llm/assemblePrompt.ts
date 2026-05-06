@@ -1,4 +1,11 @@
 import type { ToonSection } from "./toonContext.js";
+import type { PathOwnership } from "./types.js";
+import {
+  checkPathOwnership,
+  PathOwnershipViolation as PathOwnershipViolationError,
+  globMatch,
+} from "./assemblePromptOwnership.js";
+import { collectPromptSections } from "./assemblePromptSections.js";
 
 /**
  * O8 + SF4 — assemble the model-input string in the order canonized by
@@ -11,9 +18,7 @@ import type { ToonSection } from "./toonContext.js";
  * deferred until TF model wiring lands per O8.
  */
 
-export type PathOwnership = Readonly<Record<string, readonly string[]>>;
-
-export interface AssemblePromptInput {
+interface AssemblePromptInput {
   /** Caveman-gate output (compressed user-facing text). */
   caveman: string;
   /** Optional TOON-encoded slices (allowlist per O6). */
@@ -61,20 +66,6 @@ export class PromptBudgetError extends Error {
   }
 }
 
-export class PathOwnershipViolation extends Error {
-  constructor(
-    public readonly declared: string,
-    public readonly ownerKey: string,
-    public readonly allowed: readonly string[],
-  ) {
-    super(
-      `path_ownership_map violation: '${declared}' not in allowed globs for ` +
-        `'${ownerKey}' (allowed=${JSON.stringify(allowed)})`,
-    );
-    this.name = "PathOwnershipViolation";
-  }
-}
-
 const DEFAULT_CAP = 100_000;
 const CHARS_PER_TOKEN = 4;
 
@@ -82,79 +73,21 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-/**
- * Glob match for path-ownership check. Supports `**` (recursive segments) and
- * `*` (single segment). MVP is intentionally minimal — supervisor still
- * narrows further per edge 7. Anything fancier (`{a,b}`, char classes) →
- * promote to `picomatch` w/ ADR.
- */
-export function globMatch(declared: string, glob: string): boolean {
-  if (glob === declared) return true;
-  const segs = glob.split("/");
-  const reSegs: string[] = [];
-  for (const s of segs) {
-    if (s === "**") {
-      reSegs.push(".+");
-      continue;
-    }
-    const escaped = s
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*/g, "[^/]*")
-      .replace(/\?/g, "[^/]");
-    reSegs.push(escaped);
-  }
-  const re = new RegExp("^" + reSegs.join("/") + "$");
-  return re.test(declared);
-}
-
-function checkPathOwnership(
-  declaredPaths: readonly string[],
-  pathOwnership: PathOwnership,
-  ownerKey: string,
-): void {
-  const allowed = pathOwnership[ownerKey] ?? [];
-  for (const d of declaredPaths) {
-    const ok = allowed.some((a) => globMatch(d, a));
-    if (!ok) throw new PathOwnershipViolation(d, ownerKey, allowed);
-  }
-}
-
 function readEnvCap(): number {
-  const env = process.env.ORCH_MAX_PROMPT_TOKENS;
-  if (!env) return DEFAULT_CAP;
-  const n = Number(env);
+  const n = Number(process.env.ORCH_MAX_PROMPT_TOKENS);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_CAP;
   return Math.floor(n);
 }
+
+export { globMatch };
+export { PathOwnershipViolationError as PathOwnershipViolation };
 
 export function assemblePrompt(input: AssemblePromptInput): AssembledPrompt {
   if (input.declaredPaths && input.pathOwnership && input.ownerKey) {
     checkPathOwnership(input.declaredPaths, input.pathOwnership, input.ownerKey);
   }
 
-  const sections: string[] = [];
-  if (input.caveman.trim()) sections.push(input.caveman.trim());
-
-  if (input.toonSections && input.toonSections.length > 0) {
-    for (const s of input.toonSections) {
-      sections.push(`### ${s.label}\n${s.body}`);
-    }
-  }
-
-  sections.push(input.basePrompt.trim());
-  if (input.stackOverlay?.trim()) sections.push(input.stackOverlay.trim());
-  if (input.taskContext?.trim()) sections.push(input.taskContext.trim());
-
-  if (input.xmlBlobs && input.xmlBlobs.length > 0) {
-    for (const b of input.xmlBlobs) {
-      sections.push(`<${b.tag}>\n${b.body}\n</${b.tag}>`);
-    }
-  }
-
-  if (input.outputSchema?.trim()) {
-    sections.push(`<output_schema>\n${input.outputSchema.trim()}\n</output_schema>`);
-  }
-
+  const sections = collectPromptSections(input);
   const text = sections.join("\n\n");
   const estTokens = estimateTokens(text);
   const cap = input.maxPromptTokens ?? readEnvCap();

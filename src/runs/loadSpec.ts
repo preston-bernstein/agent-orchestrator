@@ -19,7 +19,7 @@ import type { SpecSnapshotT } from "./RunContext.js";
  * for in-repo fixtures; stacks Phase 5 will pull from spec frontmatter.
  */
 
-export interface LoadSpecOptions {
+interface LoadSpecOptions {
   /** override default `agent-orchestrator` for cross-repo specs. */
   repo?: SpecSnapshotT["repo"];
   /** override default `ts-node` stack for cross-repo specs. */

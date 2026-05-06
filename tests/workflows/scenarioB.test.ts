@@ -10,7 +10,8 @@ import { initRunContext } from "../../src/runs/orchestratorContext.js";
 import { atomicWriteJson } from "../../src/runs/state.js";
 import { AuditWriter } from "../../src/audit/jsonl.js";
 import { verifyChain } from "../../src/audit/verify.js";
-import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
+import type { PlannerOutputT } from "../../src/agents/planner/schema.js";
+import { SNAPSHOT } from "./fixtures.js";
 
 /**
  * Phase 6 — Scenario B (UI-only) end-to-end against mocks.
@@ -27,13 +28,6 @@ import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
  */
 
 const tmpRoot = path.join(process.cwd(), "runs", "_test_scenario_B");
-
-const SNAPSHOT = {
-  docPath: "docs/playbook-expectations.md",
-  docSha256: "a".repeat(64),
-  vault_git_sha: "1507957",
-  vault_cut_date: "2026-05-04",
-};
 
 afterEach(async () => {
   await rm(tmpRoot, { recursive: true, force: true });
@@ -125,17 +119,17 @@ describe("Scenario B — UI-only (Phase 6 mock E2E)", () => {
     if (integ.ran) throw new Error("expected ran:false");
     expect(integ.reason).toBe("no_contract_no_consumer");
 
-    const audit = readFileSync(ctx.audit_path, "utf8");
-    expect(audit).toMatch(/"step":"supervisor_spawn".+react/);
-    expect(audit).toMatch(/"step":"gate_invocation"/);
-    expect(audit).toMatch(/"step":"supervisor_done"/);
-    expect(audit).toMatch(
-      /"step":"integration_skipped".+reason=no_contract_no_consumer/,
-    );
-    expect(audit).not.toMatch(/"step":"integration_run"/);
-    expect(audit).not.toMatch(/"step":"supervisor_blocked"/);
-
-    const verify = verifyChain(ctx.audit_path);
-    expect(verify.valid).toBe(true);
+    assertScenarioBAudit(ctx.audit_path);
   });
 });
+
+function assertScenarioBAudit(auditPath: string): void {
+  const audit = readFileSync(auditPath, "utf8");
+  expect(audit).toMatch(/"step":"supervisor_spawn".+react/);
+  expect(audit).toMatch(/"step":"gate_invocation"/);
+  expect(audit).toMatch(/"step":"supervisor_done"/);
+  expect(audit).toMatch(/"step":"integration_skipped".+reason=no_contract_no_consumer/);
+  expect(audit).not.toMatch(/"step":"integration_run"/);
+  expect(audit).not.toMatch(/"step":"supervisor_blocked"/);
+  expect(verifyChain(auditPath).valid).toBe(true);
+}

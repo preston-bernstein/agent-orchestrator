@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { loadBootConfig, requireTfConfig } from "../../src/config/env.js";
 
-describe("loadBootConfig", () => {
-  it("defaults RUNS_DIR + flags off when env empty", () => {
+describe("loadBootConfig — defaults", () => {
+  it("RUNS_DIR + flags off when env empty", () => {
     const cfg = loadBootConfig({});
     expect(cfg.RUNS_DIR).toBe("./runs");
     expect(cfg.strictExpectations).toBe(false);
     expect(cfg.skipTfProbe).toBe(false);
+    expect(cfg.mockTf).toBe(false);
     expect(cfg.TF_BASE_URL).toBeUndefined();
+  });
+});
+
+describe("loadBootConfig — MOCK_TF / probe / strict flags", () => {
+  it("MOCK_TF=1|true enables mockTf (Inngest + offline planner mocks)", () => {
+    expect(loadBootConfig({ MOCK_TF: "1" }).mockTf).toBe(true);
+    expect(loadBootConfig({ MOCK_TF: "true" }).mockTf).toBe(true);
   });
 
   it("parses TF_SKIP_PROBE=1 + STRICT_EXPECTATIONS=true", () => {
@@ -51,6 +59,13 @@ describe("loadBootConfig", () => {
 
   it("rejects malformed TF_BASE_URL", () => {
     expect(() => loadBootConfig({ TF_BASE_URL: "not-a-url" })).toThrow();
+  });
+});
+
+describe("loadBootConfig — Inngest URL fields", () => {
+  it("parses ORCH_ARTIFACT_BASE_URL when present", () => {
+    const cfg = loadBootConfig({ ORCH_ARTIFACT_BASE_URL: "http://127.0.0.1:3030/" });
+    expect(cfg.ORCH_ARTIFACT_BASE_URL).toMatch(/^http/);
   });
 
   it("parses Inngest vars when present (I2 — optional)", () => {

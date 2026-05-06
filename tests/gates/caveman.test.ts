@@ -61,6 +61,15 @@ describe("caveman gate — filler strip", () => {
     const out = caveman({ text: "foo   bar    baz\n\n\nqux" }).text;
     expect(out).toBe("foo bar baz\n\nqux");
   });
+
+  it("collapses more than two consecutive blank lines in free text", () => {
+    const out = caveman({ text: "a\n\n\n\nb" }).text;
+    expect(out).toBe("a\n\nb");
+  });
+
+  it("collapses exactly one extra blank between paragraphs", () => {
+    expect(caveman({ text: "a\n\n\nb" }).text).toBe("a\n\nb");
+  });
 });
 
 describe("caveman gate — length cap + truncation marker", () => {
@@ -101,6 +110,12 @@ describe("caveman gate — secret redaction", () => {
         secrets: [],
       }),
     ).not.toThrow();
+  });
+
+  it("throws RedactionFailure when declared secret is the redaction placeholder (unstable scrub)", () => {
+    expect(() =>
+      caveman({ text: "[REDACTED]", secrets: ["[REDACTED]"] }),
+    ).toThrow(RedactionFailure);
   });
 
   it("scrubs literal secrets passed via secrets[]", () => {

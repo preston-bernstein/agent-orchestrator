@@ -21,11 +21,25 @@ describe("reviewer/diffPaths", () => {
     );
   });
 
-  it("diffChurnByFile counts +/- lines", () => {
-    const churn = diffChurnByFile(sample);
-    const a = churn.find((c) => c.file === "src/a.ts");
-    const b = churn.find((c) => c.file === "src/b.ts");
-    expect(a).toEqual({ file: "src/a.ts", plus: 1, minus: 0 });
-    expect(b).toEqual({ file: "src/b.ts", plus: 1, minus: 0 });
+  it("diffChurnByFile ignores /dev/null target when file is added", () => {
+    const diff = [
+      "diff --git a/none b/src/a.ts",
+      "--- /dev/null",
+      "+++ b/src/a.ts",
+      "+x",
+    ].join("\n");
+    expect(diffChurnByFile(diff)).toEqual([
+      { file: "src/a.ts", plus: 1, minus: 0 },
+    ]);
+  });
+
+  it("diffChurnByFile drops current file on +++ /dev/null (delete hunk header)", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ /dev/null",
+      "-onlyRemoved",
+    ].join("\n");
+    expect(diffChurnByFile(diff)).toEqual([]);
   });
 });

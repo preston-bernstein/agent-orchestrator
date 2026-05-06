@@ -153,6 +153,23 @@ describe("auditHitlEscalation", () => {
     const raw = readFileSync(p, "utf8");
     expect(raw).toMatch(/"step":"hitl_escalation"/);
     expect(raw).toMatch(/hitl_category=C1/);
+    expect(raw).toMatch(/signal=danger_apply/);
     expect(raw).toMatch(/reason=human signed off/);
+  });
+
+  it("note longer than 200 chars is sliced (kills L75 .slice removal)", () => {
+    const runDir = path.join(tmpRoot, "audit-note");
+    mkdirSync(runDir, { recursive: true });
+    const p = path.join(runDir, "audit.jsonl");
+    const w = new AuditWriter({ path: p });
+    const longNote = "n".repeat(400);
+    auditHitlEscalation(w, "run-note", {
+      signal: { kind: "first_live_tf" },
+      note: longNote,
+    });
+    const raw = readFileSync(p, "utf8");
+    const m = raw.match(/"note=([^"]+)"/);
+    expect(m).not.toBeNull();
+    expect(m?.[1]?.length).toBe(200);
   });
 });

@@ -22,6 +22,8 @@ describe("atomicWriteJson", () => {
     atomicWriteJson({ path: target, data: { a: 1 } });
     const got = readJson<{ a: number }>(target);
     expect(got.a).toBe(1);
+    const raw = await readFile(target, "utf8");
+    expect(raw).toContain('"a": 1');
   });
 
   it("removes tmp sibling after rename (no leftover .tmp files)", async () => {
@@ -57,5 +59,11 @@ describe("atomicWriteJson", () => {
     expect(got.fresh).toBe(true);
     const st = await stat(target);
     expect(st.isFile()).toBe(true);
+  });
+
+  it("supports fsync: false (writeFile path)", async () => {
+    const target = path.join(tmp, "nosync.json");
+    atomicWriteJson({ path: target, data: { n: 1 }, fsync: false });
+    expect(readJson(target)).toEqual({ n: 1 });
   });
 });

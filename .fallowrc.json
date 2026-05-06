@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "ignorePatterns": [
+    "fixtures/**",
+    "docs/**",
+    "coverage-istanbul/**",
+    "stryker.conf.json",
+    "stryker.wide.conf.json"
+  ],
+  "ignoreDependencies": [
+    "@mastra/core",
+    "@stryker-mutator/typescript-checker",
+    "@stryker-mutator/vitest-runner",
+    "@vitest/coverage-istanbul",
+    "fallow",
+    "madge"
+  ],
+  "usedClassMembers": ["currentPrevHash"],
+  "duplicates": {
+    "enabled": true,
+    "mode": "strict",
+    "threshold": 5,
+    "ignoreImports": true
+  },
+  "health": {
+    "maxCognitive": 12,
+    "maxCyclomatic": 10,
+    "maxCrap": 120,
+    "ignore": [
+      "scripts/debt-guard.mjs",
+      "src/cli/orchestrate/index.ts",
+      "src/cli/mockExecuteLane.ts"
+    ]
+  },
+  "rules": {
+    "unused-dependencies": "error",
+    "unused-dev-dependencies": "error",
+    "unused-class-members": "error"
+  }
+}

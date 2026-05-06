@@ -3,7 +3,7 @@ import {
   mockFixSubagentCompletion,
   runFixSubagent,
 } from "../../src/agents/fixSubagent.js";
-import type { PlannerTaskT } from "../../src/agents/planner.schema.js";
+import type { PlannerTaskT } from "../../src/agents/planner/schema.js";
 import { javaSpringProfile } from "../../src/stacks/javaSpring.js";
 
 const TASK: PlannerTaskT = {
@@ -66,7 +66,9 @@ describe("runFixSubagent — cycle-aware refusal (vault edge 10)", () => {
     expect(called).toBe(1);
     expect(out.status).toBe("patch");
   });
+});
 
+describe("runFixSubagent — safety checks", () => {
   it("post-LLM ban-list still applies (-DskipTests embedded in in-lane fix patch)", async () => {
     const out = await runFixSubagent(
       {

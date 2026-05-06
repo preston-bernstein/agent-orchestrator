@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "_comment": "Scoped to security-adjacent surfaces: audit hash chain (vault Build/Audit Hash Chain — tamper evidence), TF egress + idempotency cache (host pin + replay safety), HITL refusal policy (--danger-apply gate), CLI flag mutex (--dry-plan/--execute exclusion), prompt assembler (path-ownership refusal + budget), env validator (boot-time refusals). Threshold ≥ 80% per tasks.md task 15. Excludes CLI entrypoints (verify.ts), data-shaping helpers (toonContext), and stub-heavy lanes (mastra agents, workflows).",
+  "_comment": "Tier T0 (trust / refusal / egress): audit hash chain, TF client + cache, HITL, CLI args mutex, assemblePrompt, env. Use `pnpm run mutation:wide` for T1+T2 app surface. Global mutation break threshold 95%. Excludes verify.ts, toonContext, mastra-heavy areas from this narrow job.",
   "packageManager": "pnpm",
   "testRunner": "vitest",
   "vitest_comment": {
@@ -29,19 +29,19 @@
   "coverageAnalysis": "perTest",
   "reporters": ["progress", "clear-text", "html", "json"],
   "htmlReporter": {
-    "fileName": "reports/mutation/mutation.html"
+    "fileName": "reports/mutation/mutation-t0.html"
   },
   "jsonReporter": {
-    "fileName": "reports/mutation/mutation.json"
+    "fileName": "reports/mutation/mutation-t0.json"
   },
+  "tempDirName": ".stryker-tmp-t0",
   "thresholds": {
-    "high": 90,
-    "low": 80,
-    "break": 80
+    "high": 95,
+    "low": 95,
+    "break": 95
   },
   "timeoutMS": 60000,
   "concurrency": 4,
-  "tempDirName": ".stryker-tmp",
   "cleanTempDir": true,
   "incremental": false
 }

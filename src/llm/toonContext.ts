@@ -1,4 +1,5 @@
 import { decode, encode } from "@toon-format/toon";
+import { canonicalize } from "../util/canonicalJson.js";
 
 /**
  * O6 — TOON-encode chosen RunContext / step output slices for LLM input.
@@ -17,7 +18,7 @@ export interface ToonSection {
   fallback: boolean;
 }
 
-export interface ToonOptions {
+interface ToonOptions {
   /** Wrap output in markdown fence ` ```toon … ``` ` for model clarity. */
   fence?: boolean;
 }
@@ -27,29 +28,44 @@ export interface ToonOptions {
  * `tasks` or `findings`); body is the encoded text. Falls back to
  * minified sorted-key JSON if TOON throws or produces empty output.
  */
+function encodeToonOrJsonFallback(value: unknown): {
+  body: string;
+  format: "toon" | "json";
+  fallback: boolean;
+} {
+  try {
+    const encoded = encode(value);
+    if (!encoded || encoded.trim() === "") throw new Error("toon_empty");
+    return { body: encoded, format: "toon", fallback: false };
+  } catch {
+    return { body: stableJson(value), format: "json", fallback: true };
+  }
+}
+
+function applyMarkdownFence(
+  body: string,
+  format: "toon" | "json",
+  fence: boolean,
+): string {
+  if (!fence) return body;
+  const lang = format === "toon" ? "toon" : "json";
+  return "```" + lang + "\n" + body + "\n```";
+}
+
 export function toToonSection(
   label: string,
   value: unknown,
   opts: ToonOptions = {},
 ): ToonSection {
   const { fence = true } = opts;
-  let body = "";
-  let format: "toon" | "json" = "toon";
-  let fallback = false;
-  try {
-    body = encode(value);
-    if (!body || body.trim() === "") {
-      throw new Error("toon_empty");
-    }
-  } catch {
-    body = stableJson(value);
-    format = "json";
-    fallback = true;
-  }
-  if (fence) {
-    body = format === "toon" ? "```toon\n" + body + "\n```" : "```json\n" + body + "\n```";
-  }
-  return { label, body, format, fallback };
+  const encoded = encodeToonOrJsonFallback(value);
+  const body = applyMarkdownFence(encoded.body, encoded.format, fence);
+  return {
+    label,
+    body,
+    format: encoded.format,
+    fallback: encoded.fallback,
+  };
 }
 
 /**
@@ -62,22 +78,5 @@ export function fromToon<T = unknown>(body: string): T {
 
 /** Stable minified JSON w/ sorted keys (canonical) — fallback path. */
 function stableJson(value: unknown): string {
-  return canonicalJsonString(value);
-}
-
-function canonicalJsonString(obj: unknown): string {
-  if (obj === undefined) return "null";
-  if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
-  if (Array.isArray(obj)) return "[" + obj.map(canonicalJsonString).join(",") + "]";
-  const rec = obj as Record<string, unknown>;
-  const keys = Object.keys(rec)
-    .filter((k) => rec[k] !== undefined)
-    .sort();
-  return (
-    "{" +
-    keys
-      .map((k) => JSON.stringify(k) + ":" + canonicalJsonString(rec[k]))
-      .join(",") +
-    "}"
-  );
+  return canonicalize(value);
 }

@@ -10,7 +10,8 @@ import { initRunContext } from "../../src/runs/orchestratorContext.js";
 import { atomicWriteJson } from "../../src/runs/state.js";
 import { AuditWriter } from "../../src/audit/jsonl.js";
 import { verifyChain } from "../../src/audit/verify.js";
-import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
+import type { PlannerOutputT } from "../../src/agents/planner/schema.js";
+import { SNAPSHOT } from "./fixtures.js";
 
 /**
  * Phase 8 closeout — Scenario D (test-only change) end-to-end against mocks.
@@ -28,13 +29,6 @@ import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
  */
 
 const tmpRoot = path.join(process.cwd(), "runs", "_test_scenario_D");
-
-const SNAPSHOT = {
-  docPath: "docs/playbook-expectations.md",
-  docSha256: "a".repeat(64),
-  vault_git_sha: "1507957",
-  vault_cut_date: "2026-05-04",
-};
 
 afterEach(async () => {
   await rm(tmpRoot, { recursive: true, force: true });
@@ -62,23 +56,7 @@ const SCENARIO_D_PLAN: PlannerOutputT = {
 
 describe("Scenario D — test-only change (Phase 8 mock E2E)", () => {
   it("spring supervisor green; integration skipped; scenario_tag=D in audit", async () => {
-    const runId = "scenario-D-happy";
-    const runDir = path.join(tmpRoot, runId);
-    mkdirSync(runDir, { recursive: true });
-    const springCwd = path.join(tmpRoot, "_managed", "spring-api");
-    mkdirSync(springCwd, { recursive: true });
-
-    const ctx = initRunContext({
-      run_id: runId,
-      started_at: "2026-05-04T09:00:00Z",
-      cli_flags: { execute: true },
-      expectations_snapshot: SNAPSHOT,
-      audit_path: path.join(runDir, "audit.jsonl"),
-      state_file_path: path.join(runDir, "state.json"),
-      specs: [],
-    });
-    ctx.path_ownership_map = SCENARIO_D_PLAN.path_ownership_map;
-    atomicWriteJson({ path: ctx.state_file_path, data: ctx });
+    const { ctx, runDir, springCwd } = makeScenarioDRun();
 
     const auditWriter = new AuditWriter({
       path: ctx.audit_path,
@@ -135,17 +113,44 @@ describe("Scenario D — test-only change (Phase 8 mock E2E)", () => {
     if (integ.ran) throw new Error("expected integration ran:false");
     expect(integ.reason).toBe("no_contract_no_consumer");
 
-    const audit = readFileSync(ctx.audit_path, "utf8");
-    expect(audit).toMatch(/"step":"scenario_tag".+scenario=D/);
-    expect(audit).toMatch(/"step":"supervisor_spawn".+spring/);
-    expect(audit).toMatch(/"step":"gate_invocation"/);
-    expect(audit).toMatch(/"step":"supervisor_done"/);
-    expect(audit).toMatch(
-      /"step":"integration_skipped".+reason=no_contract_no_consumer/,
-    );
-    expect(audit).not.toMatch(/"step":"integration_run"/);
-    expect(audit).not.toMatch(/"step":"supervisor_blocked"/);
-
-    expect(verifyChain(ctx.audit_path).valid).toBe(true);
+    assertScenarioDAudit(ctx.audit_path);
   });
 });
+
+interface ScenarioDRun {
+  ctx: ReturnType<typeof initRunContext>;
+  runDir: string;
+  springCwd: string;
+}
+
+function makeScenarioDRun(): ScenarioDRun {
+  const runId = "scenario-D-happy";
+  const runDir = path.join(tmpRoot, runId);
+  mkdirSync(runDir, { recursive: true });
+  const springCwd = path.join(tmpRoot, "_managed", "spring-api");
+  mkdirSync(springCwd, { recursive: true });
+  const ctx = initRunContext({
+    run_id: runId,
+    started_at: "2026-05-04T09:00:00Z",
+    cli_flags: { execute: true },
+    expectations_snapshot: SNAPSHOT,
+    audit_path: path.join(runDir, "audit.jsonl"),
+    state_file_path: path.join(runDir, "state.json"),
+    specs: [],
+  });
+  ctx.path_ownership_map = SCENARIO_D_PLAN.path_ownership_map;
+  atomicWriteJson({ path: ctx.state_file_path, data: ctx });
+  return { ctx, runDir, springCwd };
+}
+
+function assertScenarioDAudit(auditPath: string): void {
+  const audit = readFileSync(auditPath, "utf8");
+  expect(audit).toMatch(/"step":"scenario_tag".+scenario=D/);
+  expect(audit).toMatch(/"step":"supervisor_spawn".+spring/);
+  expect(audit).toMatch(/"step":"gate_invocation"/);
+  expect(audit).toMatch(/"step":"supervisor_done"/);
+  expect(audit).toMatch(/"step":"integration_skipped".+reason=no_contract_no_consumer/);
+  expect(audit).not.toMatch(/"step":"integration_run"/);
+  expect(audit).not.toMatch(/"step":"supervisor_blocked"/);
+  expect(verifyChain(auditPath).valid).toBe(true);
+}

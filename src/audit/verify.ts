@@ -14,41 +14,70 @@ export type VerifyResult =
  *
  * Empty file → valid w/ count 0.
  */
-export function verifyChain(path: string): VerifyResult {
-  let raw: string;
+function verifyChainRecord(
+  line: string,
+  index: number,
+  prev: string,
+):
+  | { ok: true; nextPrev: string }
+  | { ok: false; result: VerifyResult } {
+  let rec: AuditRecordT;
   try {
-    raw = readFileSync(path, "utf8");
+    rec = JSON.parse(line) as AuditRecordT;
+  } catch (e) {
+    return {
+      ok: false,
+      result: {
+        valid: false,
+        brokenAt: index,
+        reason: `invalid JSON: ${e instanceof Error ? e.message : String(e)}`,
+      },
+    };
+  }
+  if (rec.prev_hash !== prev) {
+    return {
+      ok: false,
+      result: { valid: false, brokenAt: index, reason: "prev_hash mismatch" },
+    };
+  }
+  const recomputed = hashRecord(rec);
+  if (recomputed !== rec.hash) {
+    return {
+      ok: false,
+      result: { valid: false, brokenAt: index, reason: "hash mismatch" },
+    };
+  }
+  return { ok: true, nextPrev: rec.hash };
+}
+
+function readChainLinesOrErr(filePath: string): VerifyResult | { lines: string[] } {
+  try {
+    const raw = readFileSync(filePath, "utf8");
+    const lines = raw.split("\n").filter((l) => l.length > 0);
+    return { lines };
   } catch (e) {
     return {
       valid: false,
       brokenAt: -1,
-      reason: `cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`,
+      reason: `cannot read ${filePath}: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
-  const lines = raw.split("\n").filter((l) => l.length > 0);
+}
+
+function verifyChainLines(lines: readonly string[]): VerifyResult {
   let prev = ZERO_HASH;
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string;
-    let rec: AuditRecordT;
-    try {
-      rec = JSON.parse(line) as AuditRecordT;
-    } catch (e) {
-      return {
-        valid: false,
-        brokenAt: i,
-        reason: `invalid JSON: ${e instanceof Error ? e.message : String(e)}`,
-      };
-    }
-    if (rec.prev_hash !== prev) {
-      return { valid: false, brokenAt: i, reason: "prev_hash mismatch" };
-    }
-    const recomputed = hashRecord(rec);
-    if (recomputed !== rec.hash) {
-      return { valid: false, brokenAt: i, reason: "hash mismatch" };
-    }
-    prev = rec.hash;
+    const step = verifyChainRecord(lines[i] as string, i, prev);
+    if (!step.ok) return step.result;
+    prev = step.nextPrev;
   }
   return { valid: true, count: lines.length };
+}
+
+export function verifyChain(path: string): VerifyResult {
+  const read = readChainLinesOrErr(path);
+  if ("lines" in read) return verifyChainLines(read.lines);
+  return read;
 }
 
 // ---------- CLI ----------

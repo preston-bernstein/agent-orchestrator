@@ -3,12 +3,12 @@ import {
   CycleAbortError,
   findPathOverlap,
   runSupervisor,
-} from "../../src/agents/supervisor.js";
-import { mockSubagentCompletion } from "../../src/agents/subagent.js";
+} from "../../src/agents/supervisor/index.js";
+import { mockSubagentCompletion } from "../../src/agents/subagent/index.js";
 import { mockFixSubagentCompletion } from "../../src/agents/fixSubagent.js";
-import { mockExec } from "../../src/gates/runQuality.js";
+import { mockExec, type GateExecResult } from "../../src/gates/runQuality.js";
 import { javaSpringProfile } from "../../src/stacks/javaSpring.js";
-import type { PlannerTaskT } from "../../src/agents/planner.schema.js";
+import type { PlannerTaskT } from "../../src/agents/planner/schema.js";
 import { initRunContext } from "../../src/runs/orchestratorContext.js";
 
 const SNAPSHOT = {
@@ -116,7 +116,10 @@ describe("runSupervisor — fix-loop converges then green", () => {
           "diff --git a/src/main/java/auth/A.java b/...\n+fix\n",
           ["src/main/java/auth/A.java"],
         ),
-        exec: async (cmd, opts) => {
+        exec: async (
+          cmd: readonly string[],
+          opts: { cwd: string; timeoutMs?: number; env?: Readonly<Record<string, string>> },
+        ): Promise<GateExecResult> => {
           gateCall++;
           if (gateCall === 1) {
             return {
@@ -169,6 +172,76 @@ describe("runSupervisor — fix-loop budget exhaustion (edge 10)", () => {
     expect(out.output.task_results[0]?.state).toBe("red");
     expect(out.attempt_counter["spring-T1"]).toBe(3);
     expect(out.output.fix_targets.length).toBe(1);
+  });
+});
+
+describe("runSupervisor — subagent no_change (skipped)", () => {
+  it("marks task skipped when subagent returns no_change", async () => {
+    const ctx = makeCtx();
+    ctx.path_ownership_map = { "spring-T1": TASK_T1.paths };
+    const out = await runSupervisor(
+      {
+        tasks: [TASK_T1],
+        ctx,
+        profile: javaSpringProfile,
+        cwd: "/tmp/spring-api",
+        supervisorId: "spring",
+      },
+      {
+        subagentCompletion: async () => ({
+          status: "no_change",
+          rationale: "nothing to do",
+          patch: "",
+          files_touched: [],
+          refusals: [],
+          context_request: [],
+        }),
+        fixSubagentCompletion: mockFixSubagentCompletion(),
+        exec: mockExec({ exit: 0 }),
+      },
+    );
+    expect(out.output.status).toBe("done");
+    expect(out.output.task_results[0]?.state).toBe("skipped");
+    expect(out.gate_history.length).toBe(0);
+  });
+});
+
+describe("runSupervisor — fix-subagent refuses mid loop", () => {
+  it("needs_human_clarify when fix-subagent returns refused", async () => {
+    const ctx = makeCtx();
+    ctx.path_ownership_map = { "spring-T1": TASK_T1.paths };
+    let gateCalls = 0;
+    const out = await runSupervisor(
+      {
+        tasks: [TASK_T1],
+        ctx,
+        profile: javaSpringProfile,
+        cwd: "/tmp/spring-api",
+        supervisorId: "spring",
+      },
+      {
+        subagentCompletion: mockSubagentCompletion(
+          "diff --git a/src/main/java/auth/A.java b/...\n",
+          ["src/main/java/auth/A.java"],
+        ),
+        fixSubagentCompletion: async () => ({
+          status: "refused",
+          rationale: "cannot fix",
+          patch: "",
+          files_touched: [],
+          refusals: ["no"],
+          context_request: [],
+        }),
+        exec: async () => {
+          gateCalls++;
+          return gateCalls === 1
+            ? { exit: 1, stdout: "", stderr: "FAIL" }
+            : { exit: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+    expect(out.output.status).toBe("needs_human_clarify");
+    expect(out.output.fix_targets.length).toBeGreaterThan(0);
   });
 });
 

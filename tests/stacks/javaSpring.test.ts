@@ -10,6 +10,11 @@ describe("javaSpringProfile (Build/Prompts/Stacks/java-spring.md mirror)", () =>
   it("matches vault overlay §StackProfile field names + values", () => {
     expect(javaSpringProfile.id).toBe("java-spring");
     expect(javaSpringProfile.packageManager).toBe("maven");
+    expect(javaSpringProfile.installCmd).toEqual([
+      "./mvnw",
+      "install",
+      "-DskipTests",
+    ]);
     expect(javaSpringProfile.qualityFastCmd).toEqual([
       "./mvnw",
       "-T",

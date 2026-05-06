@@ -1,0 +1,62 @@
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  PathOwnershipViolation,
+  PromptBudgetError,
+  assemblePrompt,
+  estimateTokens,
+  globMatch,
+} from "../../src/llm/assemblePrompt.js";
+import { toToonSection } from "../../src/llm/toonContext.js";
+
+const ORIG_ENV = process.env.ORCH_MAX_PROMPT_TOKENS;
+
+afterEach(() => {
+  if (ORIG_ENV === undefined) delete process.env.ORCH_MAX_PROMPT_TOKENS;
+  else process.env.ORCH_MAX_PROMPT_TOKENS = ORIG_ENV;
+});
+
+describe("assemblePrompt — section composition optional fields", () => {
+  it("outputSchema whitespace-only is omitted (kills L154–155 trim guards)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      outputSchema: "  \t\n  ",
+      agentRole: "planner",
+    });
+    expect(out.text).not.toContain("<output_schema>");
+    expect(out.sections).toEqual(["C", "B"]);
+  });
+
+  it("outputSchema inner trim: padded content still emits trimmed body", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      outputSchema: "  OUT  ",
+      agentRole: "planner",
+    });
+    expect(out.text).toContain("<output_schema>\nOUT\n</output_schema>");
+    expect(out.text).not.toContain("<output_schema>\n  OUT  \n</output_schema>");
+  });
+
+  it("taskContext whitespace-only is omitted (kills L146 optional-chain trim)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      taskContext: "  \n\t  ",
+      agentRole: "planner",
+    });
+    expect(out.sections).toEqual(["C", "B"]);
+    expect(out.text).toBe("C\n\nB");
+  });
+
+  it("xmlBlobs: [] emits no XML blocks (kills L148 length guard)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      xmlBlobs: [],
+      agentRole: "planner",
+    });
+    expect(out.text).not.toMatch(/<[a-z_]+>/);
+    expect(out.sections).toEqual(["C", "B"]);
+  });
+});

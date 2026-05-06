@@ -1,34 +1,11 @@
-import type { PlannerTaskT } from "./planner.schema.js";
+import type { PlannerTaskT } from "./planner/schema.js";
 import { caveman } from "../gates/caveman.js";
 import { assemblePrompt, type AssembledPrompt } from "../llm/assemblePrompt.js";
 import type { StackProfile } from "../stacks/types.js";
-import {
-  SubagentOutput,
-  type SubagentOutputT,
-} from "./subagent.schema.js";
-import {
-  SubagentSchemaError,
-  enforceFilesTouched,
-  enforceSnapshotFlagBan,
-} from "./subagent.js";
+import { type SubagentOutputT } from "./subagent/schema.js";
+import { invokeAndParse } from "./subagent/index.js";
 
-/**
- * Fix-Subagent (vault `Build/Prompts/fix-subagent.md`). Narrowed subagent
- * for fix-loops. Reads failing gate log + prior patch + same task slice;
- * emits ONE minimal diff that fixes the failing gate without rewriting
- * working code.
- *
- * Output shape == `SubagentOutput` (vault canon). Behavior deltas vs base:
- *  - `attempt >= max_fix_loops` ⇒ orchestrator should not have called us;
- *    refuse `'fix budget exceeded'` (defensive).
- *  - rationale must cite gate_log line (caller validates upstream;
- *    schema-level ≤200 chars enforced).
- *  - `files_touched.length > 4` ⇒ orchestrator MAY refuse upstream
- *    (`fix scope too large`); we surface the raw patch + supervisor
- *    decides.
- */
-
-export const FIX_SUBAGENT_BASE_PROMPT = [
+const FIX_SUBAGENT_BASE_PROMPT = [
   "you are Fix-Subagent. one minimal diff. fix failing gate. do NOT rewrite.",
   "rationale must cite gate_log line. ≤200 chars.",
   "no `@ts-ignore`/`as any`/`// eslint-disable`/`@SuppressWarnings`. silencing != fixing.",
@@ -37,7 +14,7 @@ export const FIX_SUBAGENT_BASE_PROMPT = [
   "one try per call. emit one diff. end.",
 ].join("\n");
 
-export interface RunFixSubagentInput {
+interface RunFixSubagentInput {
   task: PlannerTaskT;
   stackOverlay?: string;
   stackProfile: StackProfile;
@@ -56,7 +33,7 @@ export interface RunFixSubagentInput {
   ownerKey?: string;
 }
 
-export interface RunFixSubagentDeps {
+interface RunFixSubagentDeps {
   completion: (prompt: AssembledPrompt) => Promise<unknown>;
 }
 
@@ -102,24 +79,9 @@ export async function runFixSubagent(
     ownerKey,
   });
 
-  const raw = await deps.completion(prompt);
-  const parsed = SubagentOutput.safeParse(raw);
-  if (!parsed.success) {
-    throw new SubagentSchemaError(parsed.error.issues);
-  }
-  let out = parsed.data;
-  out = enforceFilesTouched(out, input.task.paths);
-  out = enforceSnapshotFlagBan(out, input.stackProfile);
-  return out;
+  return invokeAndParse(deps.completion, prompt, input.task.paths, input.stackProfile);
 }
 
-/**
- * Deterministic mock fix completion for tests. Returns a one-line patch
- * that "fixes" by toggling — Scenario A test asserts the supervisor swaps
- * gate exec to a green stub on the next attempt. Caller supplies
- * `files_touched` so post-LLM scope check (`enforceFilesTouched`) sees a
- * lane-conformant fixture.
- */
 export function mockFixSubagentCompletion(
   patch: string = "diff --git a/mock-fix b/mock-fix\n",
   files_touched: readonly string[] = ["mock-fix"],

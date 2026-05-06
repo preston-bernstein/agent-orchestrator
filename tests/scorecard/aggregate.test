@@ -1,0 +1,103 @@
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { AuditWriter } from "../../src/audit/jsonl.js";
+import {
+  accumulateTotals,
+  buildScorecardModel,
+  discoverAuditPaths,
+  filterRunsSince,
+  rollupAuditJsonl,
+  sinceIsoUtc,
+} from "../../src/scorecard/aggregate.js";
+
+const root = path.join(process.cwd(), "runs", "_scorecard_test");
+
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+describe("scorecard aggregate supervisor and approval parsing", () => {
+  it("supervisor_spawn agent must match *-supervisor; non-done status ⇒ not green", async () => {
+    await mkdir(path.join(root, "sup-parse"), { recursive: true });
+    const ap = path.join(root, "sup-parse", "audit.jsonl");
+    const w = new AuditWriter({ path: ap });
+    w.write({
+      run_id: "sup-parse",
+      step: "supervisor_spawn",
+      agent: "mystery",
+      timestamp: "2026-05-04T00:00:00Z",
+    });
+    w.write({
+      run_id: "sup-parse",
+      step: "supervisor_done",
+      agent: "mystery",
+      decisions: ["status=pending", "next=halt"],
+      timestamp: "2026-05-04T00:00:01Z",
+    });
+    const r = rollupAuditJsonl(ap);
+    expect(r.scenario).toBe("unknown");
+    expect(r.green).toBe(false);
+  });
+
+  it("buildScorecardModel honors explicit auditPaths list", async () => {
+    await mkdir(path.join(root, "x1"), { recursive: true });
+    await mkdir(path.join(root, "x2"), { recursive: true });
+    const p1 = path.join(root, "x1", "audit.jsonl");
+    const p2 = path.join(root, "x2", "audit.jsonl");
+    const w1 = new AuditWriter({ path: p1 });
+    w1.write({ run_id: "x1", step: "dry_plan", agent: "p", timestamp: "2026-05-04T00:00:00Z" });
+    const w2 = new AuditWriter({ path: p2 });
+    w2.write({ run_id: "x2", step: "dry_plan", agent: "p", timestamp: "2026-05-04T00:00:00Z" });
+    const m = buildScorecardModel(root, [path.resolve(p2)]);
+    expect(m.runs).toHaveLength(1);
+    expect(m.runs[0]?.run_id).toBe("x2");
+  });
+
+  it("buildScorecardModel aggregates discovered paths", async () => {
+    await mkdir(path.join(root, "xa"), { recursive: true });
+    const p1 = path.join(root, "xa", "audit.jsonl");
+    const w = new AuditWriter({ path: p1 });
+    w.write({ run_id: "xa", step: "dry_plan", agent: "p", timestamp: "2026-05-10T00:00:00Z" });
+    const m = buildScorecardModel(root);
+    expect(m.runs).toHaveLength(1);
+    expect(m.totals.dry_plan_count).toBe(1);
+    expect(m.totals.runs_scanned).toBe(1);
+  });
+});
+
+
+describe("scorecard aggregate approval metrics", () => {
+  it("rollupAuditJsonl captures approval decisions + latency", async () => {
+    await mkdir(path.join(root, "approval"), { recursive: true });
+    const ap = path.join(root, "approval", "audit.jsonl");
+    const w = new AuditWriter({ path: ap });
+    w.write({
+      run_id: "approval",
+      step: "approval_prompt_written",
+      agent: "approval",
+      decisions: ["supervisor=spring", "path=runs/x/spring/approval-prompt.md"],
+      timestamp: "2026-05-04T00:00:00.000Z",
+    });
+    w.write({
+      run_id: "approval",
+      step: "approval_decision",
+      agent: "approval",
+      decisions: ["supervisor=spring", "approved=true"],
+      timestamp: "2026-05-04T00:00:03.000Z",
+    });
+    w.write({
+      run_id: "approval",
+      step: "approval_decision",
+      agent: "approval",
+      decisions: ["supervisor=react", "decision=timeout"],
+      timestamp: "2026-05-04T00:00:10.000Z",
+    });
+    const r = rollupAuditJsonl(ap);
+    expect(r.approval_approved_count).toBe(1);
+    expect(r.approval_rejected_count).toBe(0);
+    expect(r.approval_timeout_count).toBe(1);
+    expect(r.approval_latency_ms_avg).toBe(3000);
+  });
+});
+

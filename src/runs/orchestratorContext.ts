@@ -22,7 +22,7 @@ export const OrchestratorContext = RunContext.extend({
 });
 export type OrchestratorContextT = z.infer<typeof OrchestratorContext>;
 
-export interface InitRunContextInput {
+interface InitRunContextInput {
   run_id: string;
   started_at: string;
   cli_flags: Record<string, unknown>;

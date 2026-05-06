@@ -10,19 +10,13 @@ import {
 } from "../../src/workflows/plannerBranch.js";
 import {
   mockPlannerCompletion,
-} from "../../src/agents/planner.js";
+} from "../../src/agents/planner/index.js";
 import { initRunContext } from "../../src/runs/orchestratorContext.js";
 import { atomicWriteJson } from "../../src/runs/state.js";
 import { verifyChain } from "../../src/audit/verify.js";
+import { SNAPSHOT } from "./fixtures.js";
 
 const tmpRoot = path.join(process.cwd(), "runs", "_test_planner_branch");
-
-const SNAPSHOT = {
-  docPath: "docs/playbook-expectations.md",
-  docSha256: "a".repeat(64),
-  vault_git_sha: "1507957",
-  vault_cut_date: "2026-05-04",
-};
 
 afterEach(async () => {
   await rm(tmpRoot, { recursive: true, force: true });
@@ -159,6 +153,53 @@ describe("runPlannerBranch — execute lane (A4 risky)", () => {
         runDir,
       }),
     ).rejects.toBeInstanceOf(CliFlagConflict);
+  });
+});
+
+describe("runPlannerBranch — resolveCompletion (MOCK_TF seam)", () => {
+  it("uses mockPlannerCompletion when MOCK_TF=1 and no completion passed", async () => {
+    const prev = process.env.MOCK_TF;
+    process.env.MOCK_TF = "1";
+    try {
+      const { ctx, runDir } = makeRun({
+        runId: "mock-tf-exec",
+        cliFlags: { execute: true },
+        specs: [{ slug: "feat-x", tasksBody: "- [ ] open task\n" }],
+      });
+      const out = await runPlannerBranch({
+        ctx,
+        cliFlags: ctx.cli_flags,
+        runDir,
+        dryRunDeps: { gitStatus: cleanGit },
+      });
+      expect(out.kind).toBe("execution_started");
+    } finally {
+      if (prev === undefined) delete process.env.MOCK_TF;
+      else process.env.MOCK_TF = prev;
+    }
+  });
+
+  it("throws when execute path has no completion and MOCK_TF is unset", async () => {
+    const prev = process.env.MOCK_TF;
+    delete process.env.MOCK_TF;
+    try {
+      const { ctx, runDir } = makeRun({
+        runId: "no-tf",
+        cliFlags: { execute: true },
+        specs: [{ slug: "feat-x", tasksBody: "- [ ] open task\n" }],
+      });
+      await expect(
+        runPlannerBranch({
+          ctx,
+          cliFlags: ctx.cli_flags,
+          runDir,
+          dryRunDeps: { gitStatus: cleanGit },
+        }),
+      ).rejects.toThrow(/real-TF planner completion not wired/);
+    } finally {
+      if (prev === undefined) delete process.env.MOCK_TF;
+      else process.env.MOCK_TF = prev;
+    }
   });
 });
 

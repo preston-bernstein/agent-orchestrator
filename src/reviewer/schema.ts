@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-/** Vault `Build/Prompts/reviewer.md` §Output (O1). Phase 7 MVP = deterministic slice only. */
-export const ReviewerFindingSeverity = z.enum(["error", "warning", "info"]);
+/** Vault `Build/Prompts/reviewer.md` §Output (O1). Deterministic slice only. */
+const ReviewerFindingSeverity = z.enum(["error", "warning", "info"]);
 
-export const ReviewerFinding = z.object({
+const ReviewerFinding = z.object({
   severity: ReviewerFindingSeverity,
   rule: z.string(),
   file: z.string().optional(),
@@ -11,7 +11,7 @@ export const ReviewerFinding = z.object({
   message: z.string().max(160),
 });
 
-export const ReviewerGateSummary = z.object({
+const ReviewerGateSummary = z.object({
   fast: z.enum(["pass", "fail", "skipped"]),
   heavy: z.enum(["pass", "fail", "skipped"]),
   coverage_pct: z.number().optional(),

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // ---------- Shared enums ----------
 
-export const RunStatus = z.enum([
+const RunStatus = z.enum([
   "pending",
   "running",
   "paused_for_approval",
@@ -15,13 +15,11 @@ export const RunStatus = z.enum([
   "capability_missing",
 ]);
 
-export const StackId = z.string(); // open-set: 'java-spring' | 'ts-react-vite' | 'ts-node' | …
-
-export const RepoLane = z.enum(["api", "ui", "orchestrator", "shared"]);
+const StackId = z.string(); // open-set: 'java-spring' | 'ts-react-vite' | 'ts-node' | …
 
 // ---------- Per-spec snapshot ----------
 
-export const SpecSnapshot = z.object({
+const SpecSnapshot = z.object({
   slug: z.string(), // YYYY-MM-DD-<feature>
   repo: z.string(), // 'spring-api' | 'react-ui' | 'agent-orchestrator'
   pair_slug: z.string().optional(),
@@ -34,11 +32,11 @@ export const SpecSnapshot = z.object({
 
 // ---------- Path ownership (edge 7) ----------
 
-export const PathOwnership = z.record(z.string(), z.array(z.string()));
+const PathOwnership = z.record(z.string(), z.array(z.string()));
 
 // ---------- Per-gate result ----------
 
-export const GateResult = z.object({
+const GateResult = z.object({
   cmd: z.array(z.string()),
   cwd: z.string(),
   exit: z.number(), // 0 pass · 1–125 test fail · >125 infra/timeout
@@ -52,7 +50,7 @@ export const GateResult = z.object({
 
 // ---------- Per-LLM call ----------
 
-export const LlmCall = z.object({
+const LlmCall = z.object({
   agent: z.enum([
     "planner",
     "spring-supervisor",
@@ -81,7 +79,7 @@ export const LlmCall = z.object({
 
 // ---------- Audit decision ----------
 
-export const AuditDecision = z.object({
+const AuditDecision = z.object({
   step: z.string(),
   agent: z.string(),
   decision: z.string(),
@@ -167,7 +165,4 @@ export const RunContext = z.object({
 });
 
 export type RunContextT = z.infer<typeof RunContext>;
-export type GateResultT = z.infer<typeof GateResult>;
-export type LlmCallT = z.infer<typeof LlmCall>;
 export type SpecSnapshotT = z.infer<typeof SpecSnapshot>;
-export type AuditDecisionT = z.infer<typeof AuditDecision>;

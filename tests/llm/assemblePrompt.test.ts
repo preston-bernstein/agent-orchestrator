@@ -20,6 +20,12 @@ describe("globMatch — minimal MVP", () => {
     expect(globMatch("src/main/java/Foo.java", "src/main/java/Foo.java")).toBe(true);
   });
 
+  it("glob === declared short-circuit still true for regex-special segments (L92 fast path)", () => {
+    // Without `glob === declared`, regex compilation still matches self, but fast path
+    // is the branch under mutation for `ConditionalExpression → false`.
+    expect(globMatch("src/a+b.java", "src/a+b.java")).toBe(true);
+  });
+
   it("** matches recursive segments", () => {
     expect(globMatch("src/main/java/foo/bar/Baz.java", "src/main/java/**")).toBe(true);
     expect(globMatch("src/main/java/foo/Baz.java", "src/main/java/**")).toBe(true);
@@ -78,6 +84,17 @@ describe("assemblePrompt — path_ownership_map allowlist (SF4 task 30)", () => 
         declaredPaths: ["src/Foo.ts"],
         pathOwnership: { "spring-T1": [] },
         ownerKey: "spring-T1",
+      }),
+    ).toThrow(PathOwnershipViolation);
+  });
+
+  it("pathOwnership[ownerKey] undefined uses empty allowlist, not sentinel (kills `?? []`)", () => {
+    expect(() =>
+      assemblePrompt({
+        ...baseOk,
+        declaredPaths: ["Stryker was here"],
+        pathOwnership: { other_lane: ["src/**"] },
+        ownerKey: "planner",
       }),
     ).toThrow(PathOwnershipViolation);
   });
@@ -192,9 +209,19 @@ describe("assemblePrompt — env cap edge cases (kill mutants L124–126)", () =
       }),
     ).not.toThrow();
   });
+
+  it("ORCH_MAX_PROMPT_TOKENS=\"\" treated as missing (kills L124 `if (!env)` guard)", () => {
+    process.env.ORCH_MAX_PROMPT_TOKENS = "";
+    const out = assemblePrompt({
+      caveman: "small",
+      basePrompt: "small",
+      agentRole: "planner",
+    });
+    expect(out.estTokens).toBeGreaterThan(0);
+  });
 });
 
-describe("assemblePrompt — section composition (kill mutants L135–148)", () => {
+describe("assemblePrompt — section composition: caveman + base (L135–138)", () => {
   it("sections array starts empty (kills L135 ArrayDeclaration sentinel)", () => {
     const out = assemblePrompt({
       caveman: "C",
@@ -232,7 +259,9 @@ describe("assemblePrompt — section composition (kill mutants L135–148)", () 
     });
     expect(out.sections[0]).toBe("CAVE");
   });
+});
 
+describe("assemblePrompt — optional overlays + trimming (L138–154)", () => {
   it("toonSections=undefined ⇒ no throw, no toon section (kills L138 conditional-true)", () => {
     const out = assemblePrompt({
       caveman: "C",
@@ -280,5 +309,112 @@ describe("assemblePrompt — section composition (kill mutants L135–148)", () 
       agentRole: "planner",
     });
     expect(out.sections).toContain("STACK");
+  });
+});
+
+describe("assemblePrompt — base trim + token boundary (L144–161)", () => {
+  it("toonSections: [] does not emit TOON blocks (kills L138 `length > 0`)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      toonSections: [],
+      agentRole: "planner",
+    });
+    expect(out.sections).toEqual(["C", "B"]);
+    expect(out.text).not.toContain("###");
+  });
+
+  it("basePrompt trimmed — padded base differs from raw when .trim() removed (L144)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "  MID  ",
+      agentRole: "planner",
+    });
+    expect(out.sections[1]).toBe("MID");
+    expect(out.text).toBe("C\n\nMID");
+  });
+
+  it("taskContext + stackOverlay trimmed — padding must not create extra blank sections (L146)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      stackOverlay: "  S  ",
+      taskContext: "  T  ",
+      agentRole: "planner",
+    });
+    expect(out.text).toBe("C\n\nB\n\nS\n\nT");
+    expect(out.sections).toEqual(["C", "B", "S", "T"]);
+  });
+
+  it("boundary: estTokens === maxPromptTokens does not throw (kills L161 `>` → `>=`)", () => {
+    const body = "abcd";
+    const est = estimateTokens(body);
+    expect(est).toBe(1);
+    const out = assemblePrompt({
+      caveman: "",
+      basePrompt: body,
+      agentRole: "planner",
+      maxPromptTokens: est,
+    });
+    expect(out.estTokens).toBe(est);
+  });
+
+  it("boundary: estTokens === cap + 1 throws", () => {
+    const body = "abcd";
+    const est = estimateTokens(body);
+    expect(() =>
+      assemblePrompt({
+        caveman: "",
+        basePrompt: body,
+        agentRole: "planner",
+        maxPromptTokens: est - 1,
+      }),
+    ).toThrow(PromptBudgetError);
+  });
+});
+
+describe("assemblePrompt — outputSchema + xml blobs (L148–155)", () => {
+  it("outputSchema whitespace-only is omitted (kills L154–155 trim guards)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      outputSchema: "  \t\n  ",
+      agentRole: "planner",
+    });
+    expect(out.text).not.toContain("<output_schema>");
+    expect(out.sections).toEqual(["C", "B"]);
+  });
+
+  it("outputSchema inner trim: padded content still emits trimmed body", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      outputSchema: "  OUT  ",
+      agentRole: "planner",
+    });
+    expect(out.text).toContain("<output_schema>\nOUT\n</output_schema>");
+    expect(out.text).not.toContain("<output_schema>\n  OUT  \n</output_schema>");
+  });
+
+  it("taskContext whitespace-only is omitted (kills L146 optional-chain trim)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      taskContext: "  \n\t  ",
+      agentRole: "planner",
+    });
+    expect(out.sections).toEqual(["C", "B"]);
+    expect(out.text).toBe("C\n\nB");
+  });
+
+  it("xmlBlobs: [] emits no XML blocks (kills L148 length guard)", () => {
+    const out = assemblePrompt({
+      caveman: "C",
+      basePrompt: "B",
+      xmlBlobs: [],
+      agentRole: "planner",
+    });
+    expect(out.text).not.toMatch(/<[a-z_]+>/);
+    expect(out.sections).toEqual(["C", "B"]);
   });
 });

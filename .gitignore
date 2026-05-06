@@ -1,11 +1,14 @@
 node_modules/
 dist/
 coverage/
+coverage-istanbul/
 /runs/
 .env
 *.log
-.stryker-tmp/
+# Stryker work dirs (stryker.conf tempDirName + legacy)
+.stryker-tmp*/
 reports/mutation/
 
 # Vault Build kit working copy (canon lives in Home Network Vault).
 Orchestration PoC/
+.fallow/

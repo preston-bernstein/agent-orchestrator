@@ -1,22 +1,22 @@
 import type { AuditWriter } from "../audit/jsonl.js";
-import { CliArgError } from "../cli/args.js";
+import { CliArgError } from "../errors/CliArgError.js";
 
 /** Playbook §Human in the loop — C1–C5 ids. */
-export type HitlCategory = "C1" | "C2" | "C3" | "C4" | "C5";
+type HitlCategory = "C1" | "C2" | "C3" | "C4" | "C5";
 
-export type HitlSignal =
+type HitlSignal =
   | { kind: "danger_apply" }
   | { kind: "first_live_tf" }
   | { kind: "restricted_path_touch"; paths: readonly string[] };
 
-export interface HitlClassification {
+interface HitlClassification {
   hitl_category: HitlCategory;
   requires_approval: boolean;
 }
 
 /**
  * Maps workflow signals → HITL category (vault SF5 / Playbook C1–C5).
- * Expand with C2/C5 as Playbook §Phase 7 reviewer + planner ambiguity land.
+ * Expand with C2/C5 as reviewer + planner ambiguity paths land.
  */
 export function classifyHitl(signal: HitlSignal): HitlClassification {
   switch (signal.kind) {
@@ -33,7 +33,7 @@ export function classifyHitl(signal: HitlSignal): HitlClassification {
   }
 }
 
-export interface AuditHitlEscalationInput {
+interface AuditHitlEscalationInput {
   signal: HitlSignal;
   /** CLI `--reason` when `signal.kind === danger_apply` (already validated non-empty). */
   danger_reason?: string;
