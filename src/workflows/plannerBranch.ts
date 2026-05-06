@@ -4,14 +4,15 @@ import { AuditWriter } from "../audit/jsonl.js";
 import {
   mockPlannerCompletion,
   runPlanner,
-} from "../agents/planner.js";
-import type { PlannerOutputT } from "../agents/planner.schema.js";
+} from "../agents/planner/index.js";
+import type { PlannerOutputT } from "../agents/planner/schema.js";
 import {
   plannerDryRun,
   type PlannerDryRunInput,
-} from "../planner/plannerDryRun.js";
+} from "../planner/dryRun.js";
 import type { AssembledPrompt } from "../llm/assemblePrompt.js";
 import type { OrchestratorContextT } from "../runs/orchestratorContext.js";
+import { loadBootConfig } from "../config/env.js";
 import { atomicWriteJson } from "../runs/state.js";
 
 /**
@@ -49,7 +50,7 @@ interface PlannerBranchInput {
   dryRunDeps?: Pick<PlannerDryRunInput, "gitStatus" | "readTasks">;
 }
 
-type PlannerBranchOutcome =
+export type PlannerBranchOutcome =
   | { kind: "skipped"; reason: string; auditTailHash: string }
   | { kind: "dry_plan"; planPath: string; plan: PlannerOutputT; auditTailHash: string }
   | {
@@ -93,7 +94,7 @@ function resolveCompletion(
   input: PlannerBranchInput,
 ): (prompt: AssembledPrompt) => Promise<unknown> {
   if (input.completion) return input.completion;
-  if (process.env.MOCK_TF === "1") {
+  if (loadBootConfig().mockTf) {
     return mockPlannerCompletion(input.ctx.specs) as (
       p: AssembledPrompt,
     ) => Promise<unknown>;
@@ -222,6 +223,15 @@ export async function runPlannerBranch(
       specs: ctx.specs,
       cli_flags: ctx.cli_flags,
       tf_capabilities: ctx.tf_capabilities,
+      onCavemanCompress: (phase) => {
+        audit.write({
+          run_id: ctx.run_id,
+          step: "caveman_compress",
+          agent: "planner",
+          decisions: [phase === "planner-header" ? "header" : phase],
+          timestamp: new Date().toISOString(),
+        });
+      },
     },
     { completion },
   )) as PlannerOutputT;

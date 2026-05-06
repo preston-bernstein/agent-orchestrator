@@ -1,5 +1,5 @@
 import type { AuditWriter } from "../audit/jsonl.js";
-import { CliArgError } from "../cli/args.js";
+import { CliArgError } from "../errors/CliArgError.js";
 
 /** Playbook §Human in the loop — C1–C5 ids. */
 type HitlCategory = "C1" | "C2" | "C3" | "C4" | "C5";
@@ -16,7 +16,7 @@ interface HitlClassification {
 
 /**
  * Maps workflow signals → HITL category (vault SF5 / Playbook C1–C5).
- * Expand with C2/C5 as Playbook §Phase 7 reviewer + planner ambiguity land.
+ * Expand with C2/C5 as reviewer + planner ambiguity paths land.
  */
 export function classifyHitl(signal: HitlSignal): HitlClassification {
   switch (signal.kind) {

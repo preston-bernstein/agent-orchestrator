@@ -1,0 +1,106 @@
+import { describe, expect, it } from "vitest";
+import {
+  CycleAbortError,
+  findPathOverlap,
+  runSupervisor,
+} from "../../src/agents/supervisor/index.js";
+import { mockSubagentCompletion } from "../../src/agents/subagent/index.js";
+import { mockFixSubagentCompletion } from "../../src/agents/fixSubagent.js";
+import { mockExec } from "../../src/gates/runQuality.js";
+import { javaSpringProfile } from "../../src/stacks/javaSpring.js";
+import type { PlannerTaskT } from "../../src/agents/planner/schema.js";
+import { initRunContext } from "../../src/runs/orchestratorContext.js";
+
+const SNAPSHOT = {
+  docPath: "docs/playbook-expectations.md",
+  docSha256: "a".repeat(64),
+  vault_git_sha: "1507957",
+  vault_cut_date: "2026-05-04",
+};
+
+function makeCtx() {
+  return initRunContext({
+    run_id: "supervisor-test",
+    started_at: "2026-05-04T09:00:00Z",
+    cli_flags: { execute: true },
+    expectations_snapshot: SNAPSHOT,
+    audit_path: "/tmp/audit.jsonl",
+    state_file_path: "/tmp/state.json",
+    specs: [],
+  });
+}
+
+const TASK_T1: PlannerTaskT = {
+  id: "spring-T1",
+  spec_slug: "auth-feature",
+  repo: "spring-api",
+  supervisor: "spring",
+  title: "add auth endpoint",
+  paths: ["src/main/java/auth/**", "src/test/java/auth/**"],
+  depends_on: [],
+};
+const TASK_T2_OVERLAP: PlannerTaskT = {
+  ...TASK_T1,
+  id: "spring-T2",
+  paths: ["src/main/java/auth/**"],
+};
+
+describe("runSupervisor — O3 supervisor budget cap", () => {
+  it("returns budget_exhausted at boot when supervisor budget already spent", async () => {
+    const ctx = makeCtx();
+    ctx.path_ownership_map = { "spring-T1": TASK_T1.paths };
+    ctx.tokens_budget.supervisor = 500;
+    ctx.tokens_spent = { supervisor: 500 };
+    let subCalls = 0;
+    const out = await runSupervisor(
+      {
+        tasks: [TASK_T1],
+        ctx,
+        profile: javaSpringProfile,
+        cwd: "/tmp/spring-api",
+        supervisorId: "spring",
+      },
+      {
+        subagentCompletion: async () => {
+          subCalls++;
+          return mockSubagentCompletion()({} as never);
+        },
+        fixSubagentCompletion: mockFixSubagentCompletion(),
+        exec: mockExec({ exit: 0 }),
+      },
+    );
+    expect(out.output.status).toBe("budget_exhausted");
+    expect(subCalls).toBe(0);
+  });
+});
+
+
+describe("runSupervisor — cycle guard (edge 32)", () => {
+  it("throws CycleAbortError when visited.length exceeds graph_depth_cap", async () => {
+    const ctx = makeCtx();
+    ctx.path_ownership_map = { "spring-T1": TASK_T1.paths };
+    ctx.graph_depth_cap = 2;
+    await expect(
+      runSupervisor(
+        {
+          tasks: [TASK_T1],
+          ctx,
+          profile: javaSpringProfile,
+          cwd: "/tmp/spring-api",
+          supervisorId: "spring",
+        },
+        {
+          subagentCompletion: mockSubagentCompletion(
+            "diff --git a/src/main/java/auth/A.java b/...\n",
+            ["src/main/java/auth/A.java"],
+          ),
+          fixSubagentCompletion: mockFixSubagentCompletion(
+            "diff --git a/src/main/java/auth/A.java b/...\n+fix\n",
+            ["src/main/java/auth/A.java"],
+          ),
+          exec: mockExec({ exit: 1, stderr: "always failing" }),
+        },
+      ),
+    ).rejects.toBeInstanceOf(CycleAbortError);
+  });
+});

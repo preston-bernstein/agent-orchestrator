@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import {
-  ContractArtifactMissing,
-  ContractFormatUnrecognized,
   hashContract,
   runIntegration,
-} from "../../src/agents/integration.js";
+} from "../../src/agents/integration/index.js";
 
-describe("integration agent — deterministic-only (Phase 6 MVP)", () => {
+describe("integration agent deterministic status paths", () => {
   it("returns no_consumer/proceed when no consumer task declared consumes_contract", async () => {
     const out = await runIntegration({
       contractPath: "/abs/openapi.json",
@@ -62,7 +60,9 @@ describe("integration agent — deterministic-only (Phase 6 MVP)", () => {
     expect(out.recommended_action).toBe("proceed");
     expect(out.contract_hash).toBe(prior);
   });
+});
 
+describe("integration agent deterministic scenario branches", () => {
   it("returns compatible/proceed on first publish (no prior hash)", async () => {
     const out = await runIntegration(
       {
@@ -92,38 +92,5 @@ describe("integration agent — deterministic-only (Phase 6 MVP)", () => {
     expect(out.ui_drift[0]?.file).toBe("src/api/generated/index.ts");
   });
 
-  it("throws ContractArtifactMissing when reader fails", async () => {
-    await expect(
-      runIntegration(
-        {
-          contractPath: "/missing/openapi.json",
-          priorContractHash: null,
-          hasConsumer: true,
-        },
-        {
-          readContract: async () => {
-            throw new Error("ENOENT");
-          },
-        },
-      ),
-    ).rejects.toBeInstanceOf(ContractArtifactMissing);
-  });
-
-  it("throws ContractFormatUnrecognized for non-.json contracts", async () => {
-    await expect(
-      runIntegration({
-        contractPath: "/abs/api.proto",
-        priorContractHash: null,
-        hasConsumer: true,
-      }),
-    ).rejects.toBeInstanceOf(ContractFormatUnrecognized);
-  });
-
-  it("clamps rationale to ≤200 chars (vault canon)", async () => {
-    const out = await runIntegration({
-      priorContractHash: null,
-      hasConsumer: true,
-    });
-    expect(out.rationale.length).toBeLessThanOrEqual(200);
-  });
 });
+

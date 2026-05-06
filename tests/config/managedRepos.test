@@ -1,0 +1,115 @@
+import { describe, expect, it } from "vitest";
+import {
+  ManagedRepoEnvError,
+  ManagedRepoMetaInvalid,
+  ManagedRepoMetaMissing,
+  cwdsFromManagedRepos,
+  loadManagedRepos,
+  parseManagedReposEnv,
+  parseMetaYaml,
+  parseRepoMeta,
+  repoIdForSupervisor,
+  supervisorIdForRepo,
+} from "../../src/config/managedRepos.js";
+import { UnknownStackError } from "../../src/stacks/index.js";
+
+const SPRING_META = `---
+created: 2026-05-02
+stack: java-spring
+package_manager: maven
+language_version: 21
+codegen_paths:
+  - "target/generated-sources/**"
+  - "src/main/generated/**"
+generated_markers:
+  - "@Generated"
+contract:
+  format: openapi-3
+  spec_path: "target/openapi.json"
+restricted_paths:
+  - "src/main/resources/db/migration/**"
+  - "pom.xml"
+owners:
+  - prestonbernstein
+---
+
+# Repo manifest — spring-api
+`;
+
+const ORCH_META = `---
+stack: ts-node
+codegen_paths: []
+generated_markers:
+  - "// @generated"
+contract:
+  format: none
+  spec_path: ""
+restricted_paths:
+  - "tsconfig.json"
+---
+
+# orch-self
+`;
+
+describe("loadManagedRepos — full pipeline w/ injected reader", () => {
+  const fakeReader = (files: Record<string, string>) =>
+    async (p: string) => {
+      const body = files[p];
+      if (body === undefined) throw new Error(`ENOENT ${p}`);
+      return body;
+    };
+
+  it("builds ManagedRepoMap keyed by supervisor id", async () => {
+    const out = await loadManagedRepos({
+      envRaw: "spring-api:/abs/sa",
+      readMeta: fakeReader({ "/abs/sa/docs/_meta.md": SPRING_META }),
+    });
+    expect(Object.keys(out)).toEqual(["spring"]);
+    expect(out.spring?.repoId).toBe("spring-api");
+    expect(out.spring?.cwd).toBe("/abs/sa");
+    expect(out.spring?.profile.id).toBe("java-spring");
+    expect(out.spring?.meta.contract?.spec_path).toBe("target/openapi.json");
+  });
+
+  it("throws ManagedRepoMetaMissing when reader rejects", async () => {
+    await expect(
+      loadManagedRepos({
+        envRaw: "spring-api:/abs/sa",
+        readMeta: fakeReader({}),
+      }),
+    ).rejects.toBeInstanceOf(ManagedRepoMetaMissing);
+  });
+
+  it("throws ManagedRepoMetaInvalid on bad frontmatter", async () => {
+    await expect(
+      loadManagedRepos({
+        envRaw: "spring-api:/abs/sa",
+        readMeta: fakeReader({ "/abs/sa/docs/_meta.md": "no frontmatter\n" }),
+      }),
+    ).rejects.toBeInstanceOf(ManagedRepoMetaInvalid);
+  });
+
+  it("rethrows UnknownStackError when _meta declares unknown stack", async () => {
+    const badStack = SPRING_META.replace(
+      "stack: java-spring",
+      "stack: rust-axum",
+    );
+    await expect(
+      loadManagedRepos({
+        envRaw: "spring-api:/abs/sa",
+        readMeta: fakeReader({ "/abs/sa/docs/_meta.md": badStack }),
+      }),
+    ).rejects.toBeInstanceOf(UnknownStackError);
+  });
+});
+
+
+describe("cwdsFromManagedRepos", () => {
+  it("flattens map → { supervisorId: cwd }", async () => {
+    const map = await loadManagedRepos({
+      envRaw: "spring-api:/abs/sa",
+      readMeta: async () => SPRING_META,
+    });
+    expect(cwdsFromManagedRepos(map)).toEqual({ spring: "/abs/sa" });
+  });
+});

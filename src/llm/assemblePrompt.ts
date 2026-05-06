@@ -1,4 +1,11 @@
 import type { ToonSection } from "./toonContext.js";
+import type { PathOwnership } from "./types.js";
+import {
+  checkPathOwnership,
+  PathOwnershipViolation as PathOwnershipViolationError,
+  globMatch,
+} from "./assemblePromptOwnership.js";
+import { collectPromptSections } from "./assemblePromptSections.js";
 
 /**
  * O8 + SF4 — assemble the model-input string in the order canonized by
@@ -10,8 +17,6 @@ import type { ToonSection } from "./toonContext.js";
  * Estimator: `Math.ceil(chars / 4)` MVP. Tokenizer-for-target-model swap
  * deferred until TF model wiring lands per O8.
  */
-
-type PathOwnership = Readonly<Record<string, readonly string[]>>;
 
 interface AssemblePromptInput {
   /** Caveman-gate output (compressed user-facing text). */
@@ -61,61 +66,11 @@ export class PromptBudgetError extends Error {
   }
 }
 
-export class PathOwnershipViolation extends Error {
-  constructor(
-    public readonly declared: string,
-    public readonly ownerKey: string,
-    public readonly allowed: readonly string[],
-  ) {
-    super(
-      `path_ownership_map violation: '${declared}' not in allowed globs for ` +
-        `'${ownerKey}' (allowed=${JSON.stringify(allowed)})`,
-    );
-    this.name = "PathOwnershipViolation";
-  }
-}
-
 const DEFAULT_CAP = 100_000;
 const CHARS_PER_TOKEN = 4;
 
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
-}
-
-/**
- * Glob match for path-ownership check. Supports `**` (recursive segments) and
- * `*` (single segment). MVP is intentionally minimal — supervisor still
- * narrows further per edge 7. Anything fancier (`{a,b}`, char classes) →
- * promote to `picomatch` w/ ADR.
- */
-export function globMatch(declared: string, glob: string): boolean {
-  const segs = glob.split("/");
-  const reSegs: string[] = [];
-  for (const s of segs) {
-    if (s === "**") {
-      reSegs.push(".+");
-      continue;
-    }
-    const escaped = s
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*/g, "[^/]*")
-      .replace(/\?/g, "[^/]");
-    reSegs.push(escaped);
-  }
-  const re = new RegExp("^" + reSegs.join("/") + "$");
-  return re.test(declared);
-}
-
-function checkPathOwnership(
-  declaredPaths: readonly string[],
-  pathOwnership: PathOwnership,
-  ownerKey: string,
-): void {
-  const allowed = pathOwnership[ownerKey] ?? [];
-  for (const d of declaredPaths) {
-    const ok = allowed.some((a) => globMatch(d, a));
-    if (!ok) throw new PathOwnershipViolation(d, ownerKey, allowed);
-  }
 }
 
 function readEnvCap(): number {
@@ -124,43 +79,8 @@ function readEnvCap(): number {
   return Math.floor(n);
 }
 
-function appendToonSections(
-  sections: string[],
-  toonSections: AssemblePromptInput["toonSections"],
-): void {
-  if (!toonSections?.length) return;
-  for (const s of toonSections) {
-    sections.push(`### ${s.label}\n${s.body}`);
-  }
-}
-
-function appendXmlBlobs(
-  sections: string[],
-  xmlBlobs: AssemblePromptInput["xmlBlobs"],
-): void {
-  if (!xmlBlobs?.length) return;
-  for (const b of xmlBlobs) {
-    sections.push(`<${b.tag}>\n${b.body}\n</${b.tag}>`);
-  }
-}
-
-function collectPromptSections(input: AssemblePromptInput): string[] {
-  const sections: string[] = [];
-  if (input.caveman.trim()) sections.push(input.caveman.trim());
-
-  appendToonSections(sections, input.toonSections);
-
-  sections.push(input.basePrompt.trim());
-  if (input.stackOverlay?.trim()) sections.push(input.stackOverlay.trim());
-  if (input.taskContext?.trim()) sections.push(input.taskContext.trim());
-
-  appendXmlBlobs(sections, input.xmlBlobs);
-
-  if (input.outputSchema?.trim()) {
-    sections.push(`<output_schema>\n${input.outputSchema.trim()}\n</output_schema>`);
-  }
-  return sections;
-}
+export { globMatch };
+export { PathOwnershipViolationError as PathOwnershipViolation };
 
 export function assemblePrompt(input: AssemblePromptInput): AssembledPrompt {
   if (input.declaredPaths && input.pathOwnership && input.ownerKey) {

@@ -10,10 +10,11 @@ describe("inngest client (I2)", () => {
     expect(inngest.id).toBe("agent-orchestrator");
   });
 
-  it("declares the 5 distinct events from ADR 0002 §Decision", () => {
+  it("declares orch + approval/cancel event names (ADR 0002 + gates.verify)", () => {
     expect(orchEventNames.sort()).toEqual(
       [
         "orch/dry-plan.requested",
+        "orch/gates.verify.requested",
         "orch/run.requested",
         "orch/approve.spring",
         "orch/approve.react",
@@ -28,6 +29,7 @@ describe("inngest client (I2)", () => {
       runId: validRunId,
       specSlug: "2026-05-04-feature",
       repo: "spring-api",
+      specPath: "fixtures/no-op.md",
     });
     expect(dryPlan.runId).toBe(validRunId);
 
@@ -35,6 +37,7 @@ describe("inngest client (I2)", () => {
       runId: validRunId,
       specSlug: "2026-05-04-feature",
       repo: "react-ui",
+      specPath: "fixtures/no-op.md",
       reason: "user-initiated",
     });
     expect(run.repo).toBe("react-ui");
@@ -47,8 +50,21 @@ describe("inngest client (I2)", () => {
         runId: "11111111-2222-4333-8444-555555555555",
         specSlug: "x",
         repo: "rogue-repo",
+        specPath: "x.md",
       }),
     ).toThrow();
+  });
+
+  it("gates.verify accepts optional gateKinds", () => {
+    const validRunId = "11111111-2222-4333-8444-555555555555";
+    const parsed = eventSchemas["orch/gates.verify.requested"].data.parse({
+      runId: validRunId,
+      specSlug: "x",
+      repo: "agent-orchestrator",
+      specPath: "fixtures/no-op.md",
+      gateKinds: ["heavy"],
+    });
+    expect(parsed.gateKinds).toEqual(["heavy"]);
   });
 
   it("rejects malformed runId (uuid guard)", () => {
@@ -57,10 +73,13 @@ describe("inngest client (I2)", () => {
         runId: "not-a-uuid",
         specSlug: "x",
         repo: "spring-api",
+        specPath: "x.md",
       }),
     ).toThrow();
   });
+});
 
+describe("inngest client approval/cancel schemas", () => {
   it("approve.spring requires diffHash + approver", () => {
     expect(() =>
       eventSchemas["orch/approve.spring"].data.parse({

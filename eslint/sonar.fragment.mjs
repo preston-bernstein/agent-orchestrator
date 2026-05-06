@@ -13,7 +13,7 @@ export default [
     rules: {
       "sonarjs/no-nested-functions": "off",
       "sonarjs/no-all-duplicated-branches": "off",
-      "sonarjs/cognitive-complexity": ["error", 45],
+      "sonarjs/cognitive-complexity": ["error", 12],
       "sonarjs/todo-tag": "off",
       "sonarjs/slow-regex": "off",
       "sonarjs/concise-regex": "off",
@@ -22,7 +22,6 @@ export default [
   {
     files: ["tests/**/*.ts", "**/*.test.ts"],
     rules: {
-      "sonarjs/cognitive-complexity": "off",
       "sonarjs/publicly-writable-directories": "off",
       "sonarjs/void-use": "off",
     },

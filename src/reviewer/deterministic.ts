@@ -1,209 +1,17 @@
-import { globMatch } from "../llm/assemblePrompt.js";
-import type { ManagedRepoMap, SupervisorId } from "../config/managedRepos.js";
-import type { PlannerOutputT } from "../agents/planner.schema.js";
-import type { GateInvocation } from "../gates/runQuality.js";
+import type { GateInvocation } from "../gates/types.js";
 import { ReviewerOutput, type ReviewerFindingT, type ReviewerOutputT } from "./schema.js";
-import { listUnifiedDiffRepoPaths } from "./diffPaths.js";
+import type { ReviewerDeterministicInput } from "./types.js";
+import {
+  aggregateGateSummary,
+  integrationVerdictFindings,
+  reviewOneSupervisor,
+} from "./deterministicHelpers.js";
 
-export interface SupervisorReviewerSlice {
-  supervisorId: string;
-  stackId: string;
-  diffText: string;
-  gateHistory: readonly GateInvocation[];
-  taskSummaries: readonly {
-    task_id: string;
-    title: string;
-    state: string;
-    fix_loop_count: number;
-  }[];
-}
-
-/** Narrow integration verdict for reviewer (avoid importing workflow layer). */
-export interface ReviewerIntegrationVerdict {
-  ran: boolean;
-  recommended_action?: string;
-  status?: string;
-}
-
-interface ReviewerDeterministicInput {
-  plan: PlannerOutputT;
-  supervisors: readonly SupervisorReviewerSlice[];
-  repos: ManagedRepoMap;
-  integration?: ReviewerIntegrationVerdict;
-}
-
-function appendOwnershipGlobsForTask(
-  t: PlannerOutputT["tasks"][number],
-  supervisorId: string,
-  pom: Record<string, readonly string[] | undefined>,
-  globs: string[],
-): void {
-  if (t.supervisor !== supervisorId) return;
-  const g = pom[t.id];
-  if (g) globs.push(...g);
-}
-
-function collectGlobsForSupervisorTasks(
-  plan: PlannerOutputT,
-  supervisorId: string,
-): string[] {
-  const pom = plan.path_ownership_map ?? {};
-  const globs: string[] = [];
-  for (const t of plan.tasks) {
-    appendOwnershipGlobsForTask(t, supervisorId, pom, globs);
-  }
-  return globs;
-}
-
-function unionOwnershipGlobsForSupervisor(
-  plan: PlannerOutputT,
-  supervisorId: string,
-): string[] {
-  return [...new Set(collectGlobsForSupervisorTasks(plan, supervisorId))];
-}
-
-function codegenGlobsForSupervisor(repos: ManagedRepoMap, supervisorId: string): string[] {
-  const entry = repos[supervisorId as SupervisorId];
-  if (!entry) return [];
-  const fromMeta = entry.meta.codegen_paths ?? [];
-  const fromProfile = entry.profile.codegenGlobs ?? [];
-  return [...new Set([...fromMeta, ...fromProfile])];
-}
-
-function restrictedGlobsForSupervisor(repos: ManagedRepoMap, supervisorId: string): string[] {
-  return repos[supervisorId as SupervisorId]?.meta.restricted_paths ?? [];
-}
-
-function aggregateGateSummary(
-  histories: readonly GateInvocation[],
-): ReviewerOutputT["gate_summary"] {
-  if (histories.length === 0) {
-    return { fast: "skipped", heavy: "skipped" };
-  }
-  const bad = histories.some((h) => h.exit !== 0 || h.oom || h.timed_out);
-  return {
-    fast: bad ? "fail" : "pass",
-    heavy: "skipped",
-  };
-}
-
-function pushGateFailures(history: readonly GateInvocation[], findings: ReviewerFindingT[]): void {
-  for (const h of history) {
-    if (h.exit !== 0 || h.oom || h.timed_out) {
-      findings.push({
-        severity: "error",
-        rule: "gate-failed",
-        message: sliceMsg(
-          `exit=${h.exit} oom=${Boolean(h.oom)} timed_out=${Boolean(h.timed_out)} kind=${h.kind} stack=${h.stack}`,
-        ),
-      });
-    }
-  }
-}
-
-function sliceMsg(s: string, max = 160): string {
-  return s.length <= max ? s : s.slice(0, max - 1) + "…";
-}
-
-/** Scan patch text for forbidden snapshot / skip-test style flags (vault reviewer overlay). */
-function forbiddenSnapshotTouches(profileFlags: readonly string[], diffText: string): string[] {
-  const hits: string[] = [];
-  for (const flag of profileFlags) {
-    if (flag && diffText.includes(flag)) hits.push(flag);
-  }
-  return hits;
-}
-
-function reviewOneDiffPath(
-  file: string,
-  sup: SupervisorReviewerSlice,
-  allowed: readonly string[],
-  codegen: readonly string[],
-  restricted: readonly string[],
-  findings: ReviewerFindingT[],
-): void {
-  const inScope =
-    allowed.length === 0 ? true : allowed.some((g) => globMatch(file, g));
-  if (!inScope) {
-    findings.push({
-      severity: "error",
-      rule: "out-of-scope-edit",
-      file,
-      message: sliceMsg(`path not in path_ownership_map union for ${sup.supervisorId}`),
-    });
-  }
-  if (codegen.some((g) => globMatch(file, g))) {
-    findings.push({
-      severity: "error",
-      rule: "codegen-touched",
-      file,
-      message: sliceMsg("diff intersects codegen_paths / codegenGlobs"),
-    });
-  }
-  if (restricted.some((g) => globMatch(file, g))) {
-    findings.push({
-      severity: "error",
-      rule: "restricted-path",
-      file,
-      message: sliceMsg("diff intersects restricted_paths from _meta.md"),
-    });
-  }
-}
-
-function reviewFilesInDiff(
-  paths: string[],
-  sup: SupervisorReviewerSlice,
-  input: ReviewerDeterministicInput,
-  findings: ReviewerFindingT[],
-): void {
-  const allowed = unionOwnershipGlobsForSupervisor(input.plan, sup.supervisorId);
-  const codegen = codegenGlobsForSupervisor(input.repos, sup.supervisorId);
-  const restricted = restrictedGlobsForSupervisor(input.repos, sup.supervisorId);
-
-  for (const file of paths) {
-    reviewOneDiffPath(file, sup, allowed, codegen, restricted, findings);
-  }
-}
-
-function reviewOneSupervisor(
-  sup: SupervisorReviewerSlice,
-  input: ReviewerDeterministicInput,
-  findings: ReviewerFindingT[],
-  allHistory: GateInvocation[],
-): void {
-  allHistory.push(...sup.gateHistory);
-  pushGateFailures(sup.gateHistory, findings);
-
-  const paths = listUnifiedDiffRepoPaths(sup.diffText);
-  reviewFilesInDiff(paths, sup, input, findings);
-
-  const profile = input.repos[sup.supervisorId as SupervisorId]?.profile;
-  if (!profile) return;
-  const badFlags = forbiddenSnapshotTouches(profile.snapshotForbiddenFlags, sup.diffText);
-  for (const flag of badFlags) {
-    findings.push({
-      severity: "error",
-      rule: "silencing-not-fixing",
-      message: sliceMsg(`forbidden snapshot/test shortcut substring in patch: ${flag}`),
-    });
-  }
-}
-
-function integrationVerdictFindings(
-  integration: ReviewerDeterministicInput["integration"],
-  findings: ReviewerFindingT[],
-): void {
-  if (integration?.ran !== true) return;
-  const rec = integration.recommended_action;
-  if (rec !== "block_merge" && rec !== "human_clarify") return;
-  findings.push({
-    severity: "error",
-    rule: "integration-verdict",
-    message: sliceMsg(
-      `integration recommended_action=${rec} status=${integration.status ?? "?"}`,
-    ),
-  });
-}
+export type {
+  ReviewerDeterministicInput,
+  ReviewerIntegrationVerdict,
+  SupervisorReviewerSlice,
+} from "./types.js";
 
 /**
  * Deterministic reviewer (vault `Build/Prompts/reviewer.md` §Phase 1 only).
@@ -216,7 +24,7 @@ export function runReviewerDeterministic(input: ReviewerDeterministicInput): Rev
   integrationVerdictFindings(input.integration, findings);
 
   for (const sup of input.supervisors) {
-    reviewOneSupervisor(sup, input, findings, allHistory);
+    reviewOneSupervisor(sup, input.plan, input.repos, findings, allHistory);
   }
 
   const gate_summary = aggregateGateSummary(allHistory);

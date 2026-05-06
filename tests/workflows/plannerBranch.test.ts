@@ -10,7 +10,7 @@ import {
 } from "../../src/workflows/plannerBranch.js";
 import {
   mockPlannerCompletion,
-} from "../../src/agents/planner.js";
+} from "../../src/agents/planner/index.js";
 import { initRunContext } from "../../src/runs/orchestratorContext.js";
 import { atomicWriteJson } from "../../src/runs/state.js";
 import { verifyChain } from "../../src/audit/verify.js";

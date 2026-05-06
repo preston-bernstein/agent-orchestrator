@@ -30,6 +30,8 @@ function scorecardHeaderAndTotals(m: ScorecardModel): string[] {
     `- chain_breaks: ${totals.chain_breaks}`,
     `- scenarios_seen: ${sceneCounts}`,
     `- phase_2_eligible: ${eligibility}`,
+    `- approvals: approved=${totals.approval_approved_count}, rejected=${totals.approval_rejected_count}, timeout=${totals.approval_timeout_count}`,
+    `- approval_latency_ms_avg: ${totals.approval_latency_ms_avg ?? "n/a"}`,
     ``,
     `Bar (vault \`Build/Patterns/O7-phase2-numeric-trigger.md\`): \`green_pct >= 80 AND avg_fix_loops <= 1.5 AND chain_breaks == 0\`.`,
     ``,
@@ -52,14 +54,14 @@ function scorecardRunTable(m: ScorecardModel): string[] {
     ``,
     `## Per run`,
     ``,
-    `| run_id | scenario | green | fix_loops | records | chain | dry_plan | o5_skip | hitl |`,
-    `| --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: |`,
+    `| run_id | scenario | green | fix_loops | approvals (a/r/t) | approval_ms_avg | records | chain | dry_plan | o5_skip | hitl |`,
+    `| --- | --- | --- | ---: | --- | ---: | ---: | --- | ---: | ---: | ---: |`,
   ];
   for (const r of m.runs) {
     const chain = r.chain_valid ? "ok" : "BROKEN";
     const greenCell = r.green ? "yes" : "no";
     lines.push(
-      `| ${r.run_id} | ${r.scenario} | ${greenCell} | ${r.fix_loops} | ${r.record_count} | ${chain} | ${r.dry_plan_count} | ${r.o5_skip_count} | ${r.hitl_count} |`,
+      `| ${r.run_id} | ${r.scenario} | ${greenCell} | ${r.fix_loops} | ${r.approval_approved_count}/${r.approval_rejected_count}/${r.approval_timeout_count} | ${r.approval_latency_ms_avg ?? "n/a"} | ${r.record_count} | ${chain} | ${r.dry_plan_count} | ${r.o5_skip_count} | ${r.hitl_count} |`,
     );
   }
   return lines;

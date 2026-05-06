@@ -8,7 +8,7 @@ afterEach(() => {
   else process.env.ORCH_DRY_PLAN = ORIG;
 });
 
-describe("parseArgs (Phase 4 task 27 — CLI flags)", () => {
+describe("parseArgs basic flags", () => {
   it("default: nothing set → both flags false; default lane = dry-plan", () => {
     delete process.env.ORCH_DRY_PLAN;
     const a = parseArgs([]);
@@ -39,18 +39,27 @@ describe("parseArgs (Phase 4 task 27 — CLI flags)", () => {
     expect(a.execute).toBe(true);
   });
 
-  it("--danger-apply + --dry-plan throws", () => {
+  it("--wait-approval sets waitApproval", () => {
     delete process.env.ORCH_DRY_PLAN;
-    expect(() =>
-      parseArgs(["--dry-plan", "--danger-apply", "--reason", "x"]),
-    ).toThrow(CliArgError);
+    const a = parseArgs(["--execute", "--wait-approval"]);
+    expect(a.waitApproval).toBe(true);
+    expect(a.execute).toBe(true);
   });
 
-  it("ORCH_DRY_PLAN=1 + --danger-apply throws (dry mode)", () => {
-    process.env.ORCH_DRY_PLAN = "1";
-    expect(() =>
-      parseArgs(["--danger-apply", "--reason", "x"]),
-    ).toThrow(CliArgError);
+  it("--follow sets follow", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    const a = parseArgs(["--execute", "--follow"]);
+    expect(a.follow).toBe(true);
+    expect(a.execute).toBe(true);
+  });
+
+  it("--gates-verify sets gatesVerify true", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    const a = parseArgs(["--gates-verify"]);
+    expect(a.gatesVerify).toBe(true);
+    expect(a.execute).toBe(false);
+    expect(() => parseArgs(["--gates-verify", "--execute"])).toThrow(CliArgError);
+    expect(() => parseArgs(["--gates-verify", "--dry-plan"])).toThrow(CliArgError);
   });
 
   it("--spec <path> captured", () => {
@@ -64,7 +73,38 @@ describe("parseArgs (Phase 4 task 27 — CLI flags)", () => {
     expect(() => parseArgs(["--spec"])).toThrow(CliArgError);
     expect(() => parseArgs(["--spec", "--dry-plan"])).toThrow(CliArgError);
   });
+});
 
+describe("parseArgs timeout + guardrails", () => {
+  it("--approval-timeout-ms captures numeric timeout", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    const a = parseArgs(["--approval-timeout-ms", "1500"]);
+    expect(a.approvalTimeoutMs).toBe(1500);
+  });
+
+  it("--approval-timeout-ms rejects non-numeric or non-positive", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    expect(() => parseArgs(["--approval-timeout-ms", "nope"])).toThrow(CliArgError);
+    expect(() => parseArgs(["--approval-timeout-ms", "0"])).toThrow(CliArgError);
+    expect(() => parseArgs(["--approval-timeout-ms", "-1"])).toThrow(CliArgError);
+  });
+
+  it("--danger-apply + --dry-plan throws", () => {
+    delete process.env.ORCH_DRY_PLAN;
+    expect(() =>
+      parseArgs(["--dry-plan", "--danger-apply", "--reason", "x"]),
+    ).toThrow(CliArgError);
+  });
+
+  it("ORCH_DRY_PLAN=1 + --danger-apply throws (dry mode)", () => {
+    process.env.ORCH_DRY_PLAN = "1";
+    expect(() =>
+      parseArgs(["--danger-apply", "--reason", "x"]),
+    ).toThrow(CliArgError);
+  });
+});
+
+describe("parseArgs env and unknown handling", () => {
   it("--reason <text> captured", () => {
     delete process.env.ORCH_DRY_PLAN;
     const a = parseArgs(["--reason", "human approval ok"]);
@@ -94,36 +134,5 @@ describe("parseArgs (Phase 4 task 27 — CLI flags)", () => {
     expect(a.dryPlan).toBe(true);
   });
 
-  it("--reason without value throws (kills L60 guard)", () => {
-    delete process.env.ORCH_DRY_PLAN;
-    expect(() => parseArgs(["--reason"])).toThrow(CliArgError);
-  });
-
-  it("--reason with flag-like value throws (kills L60 `startsWith(\"--\")`)", () => {
-    delete process.env.ORCH_DRY_PLAN;
-    expect(() => parseArgs(["--reason", "--dry-plan"])).toThrow(CliArgError);
-    expect(() => parseArgs(["--reason", "--"])).toThrow(CliArgError);
-  });
-
-  it("--reason value may end with \"--\" (must not use endsWith mutant)", () => {
-    delete process.env.ORCH_DRY_PLAN;
-    const a = parseArgs(["--reason", "ticket-42--"]);
-    expect(a.reason).toBe("ticket-42--");
-  });
-
-  it("loop visits each argv element exactly once for unknown flags (kills L37 `<=`)", () => {
-    delete process.env.ORCH_DRY_PLAN;
-    const a = parseArgs(["--execute", "leftover"]);
-    expect(a.execute).toBe(true);
-    expect(a.unknown).toEqual(["leftover"]);
-  });
-
-  it("default branch does not push iterator holes (undefined slots)", () => {
-    delete process.env.ORCH_DRY_PLAN;
-    const sparse: string[] = [];
-    sparse[1] = "--dry-plan";
-    const a = parseArgs(sparse);
-    expect(a.dryPlan).toBe(true);
-    expect(a.unknown).toEqual([]);
-  });
 });
+

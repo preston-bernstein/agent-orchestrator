@@ -3,12 +3,12 @@ import {
   CycleAbortError,
   findPathOverlap,
   runSupervisor,
-} from "../../src/agents/supervisor.js";
-import { mockSubagentCompletion } from "../../src/agents/subagent.js";
+} from "../../src/agents/supervisor/index.js";
+import { mockSubagentCompletion } from "../../src/agents/subagent/index.js";
 import { mockFixSubagentCompletion } from "../../src/agents/fixSubagent.js";
-import { mockExec } from "../../src/gates/runQuality.js";
+import { mockExec, type GateExecResult } from "../../src/gates/runQuality.js";
 import { javaSpringProfile } from "../../src/stacks/javaSpring.js";
-import type { PlannerTaskT } from "../../src/agents/planner.schema.js";
+import type { PlannerTaskT } from "../../src/agents/planner/schema.js";
 import { initRunContext } from "../../src/runs/orchestratorContext.js";
 
 const SNAPSHOT = {
@@ -116,7 +116,10 @@ describe("runSupervisor — fix-loop converges then green", () => {
           "diff --git a/src/main/java/auth/A.java b/...\n+fix\n",
           ["src/main/java/auth/A.java"],
         ),
-        exec: async (cmd, opts) => {
+        exec: async (
+          cmd: readonly string[],
+          opts: { cwd: string; timeoutMs?: number; env?: Readonly<Record<string, string>> },
+        ): Promise<GateExecResult> => {
           gateCall++;
           if (gateCall === 1) {
             return {

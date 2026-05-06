@@ -110,7 +110,7 @@ describe("TfClient.request", () => {
   });
 });
 
-describe("TfClient.probe", () => {
+describe("TfClient.probe — basic + auth", () => {
   it("returns parsed model ids on 200", async () => {
     const fetchImpl: FetchLike = async () =>
       jsonResponse({ data: [{ id: "gpt-4o-mini" }, { id: "claude-3" }] });
@@ -134,9 +134,9 @@ describe("TfClient.probe", () => {
     const client = new TfClient({ baseUrl: BASE, apiKey: KEY, fetchImpl });
     await expect(client.probe()).rejects.toBeInstanceOf(TfAuthError);
   });
+});
 
-  // --- stryker kill tests (mutation gate) ---
-
+describe("TfClient.probe — stryker: request header preservation", () => {
   it("preserves caller-provided Authorization header (kills L120 conditional-true mutant)", async () => {
     let captured: Headers | undefined;
     const fetchImpl: FetchLike = async (_u, init) => {
@@ -162,7 +162,9 @@ describe("TfClient.probe", () => {
     });
     expect(captured?.get("accept")).toBe("text/plain");
   });
+});
 
+describe("TfClient.probe — stryker: HTTP + JSON body", () => {
   it("status=500 specifically maps to TfHttpError (kills L144 `>= 500` → `> 500`)", async () => {
     const fetchImpl: FetchLike = async () =>
       new Response("internal", { status: 500 });
@@ -188,7 +190,9 @@ describe("TfClient.probe", () => {
     expect(res.raw).toBeNull();
     expect(res.models).toEqual([]);
   });
+});
 
+describe("TfClient.probe — stryker: data[] mapping + method", () => {
   it("probe filters non-object entries in data array (kills L174 entry guard)", async () => {
     const fetchImpl: FetchLike = async () =>
       jsonResponse({ data: ["not-an-obj", null, { id: "valid-1" }, 42] });

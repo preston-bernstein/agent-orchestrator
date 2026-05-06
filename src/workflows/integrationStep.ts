@@ -1,41 +1,18 @@
-import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { AuditWriter } from "../audit/jsonl.js";
-import { runIntegration } from "../agents/integration.js";
-import type { IntegrationOutputT } from "../agents/integration.schema.js";
+import { runIntegration } from "../agents/integration/index.js";
+import type { IntegrationOutputT } from "../agents/integration/schema.js";
 import type { OrchestratorContextT } from "../runs/orchestratorContext.js";
-import type { PlannerOutputT } from "../agents/planner.schema.js";
+import type { PlannerOutputT } from "../agents/planner/schema.js";
 import type { SupervisorBranchResult } from "./supervisorBranch.js";
-
-/**
- * Phase 6 cross-repo integration step. Runs AFTER `runSupervisorBranch`;
- * compares producer's contract artifact (declared by green spring task)
- * against prior green-run hash. Vault canon: `Build/Prompts/integration.md`.
- *
- * Skip rules (audit `integration_skipped` w/ explicit reason):
- *   - `aggregateStatus !== 'green'` — supervisors red/blocked; integration
- *     irrelevant until they recover.
- *   - `gate_contract_published === false` AND no consumer task exists ⇒
- *     `no_contract_no_consumer` (purely intra-repo run).
- *   - `gate_contract_published === false` AND consumer exists ⇒ would
- *     normally have hit `block_for_contract` upstream; defensive `not_published`.
- *   - No consumer task in plan ⇒ `no_consumer` (producer-only repo run).
- *
- * Run rules:
- *   - Both producer + consumer tasks present in plan AND aggregate green AND
- *     contract published ⇒ run integration agent against first producer's
- *     `contract_artifact` resolved relative to producer cwd. Audit
- *     `integration_run` w/ `decisions: status=…, recommended=…`.
- *
- * Refusals propagate as thrown errors (`ContractArtifactMissing` /
- * `ContractFormatUnrecognized`); caller decides whether to halt the run.
- */
-
-type IntegrationSkipReason =
-  | "aggregate_not_green"
-  | "no_consumer"
-  | "no_contract_no_consumer"
-  | "not_published";
+import type { IntegrationSkipReason } from "./types.js";
+import {
+  auditIntegrationSkipped,
+  consumerPaths,
+  contractPathForProducer,
+  integrationPrecheck,
+  integrationRunDecisionFields,
+} from "./integrationStepHelpers.js";
 
 interface IntegrationStepInput {
   ctx: OrchestratorContextT;
@@ -62,56 +39,6 @@ async function defaultReadContract(absPath: string): Promise<string> {
   return readFile(absPath, "utf8");
 }
 
-function hasConsumerTask(plan: PlannerOutputT): boolean {
-  return plan.tasks.some((t) => Boolean(t.consumes_contract));
-}
-
-function consumerPaths(plan: PlannerOutputT): string[] {
-  const out: string[] = [];
-  for (const t of plan.tasks) {
-    if (t.consumes_contract) out.push(t.consumes_contract);
-  }
-  return out;
-}
-
-function integrationPrecheck(
-  branchResult: SupervisorBranchResult,
-  plan: PlannerOutputT,
-): IntegrationSkipReason | null {
-  if (branchResult.aggregateStatus !== "green") return "aggregate_not_green";
-  const consumer = hasConsumerTask(plan);
-  if (!branchResult.gate_contract_published) {
-    return consumer ? "not_published" : "no_contract_no_consumer";
-  }
-  if (!consumer) return "no_consumer";
-  return null;
-}
-
-function contractPathForProducer(
-  producer: NonNullable<SupervisorBranchResult["contract_producers"][number]>,
-  cwds: Readonly<Record<string, string>>,
-): string | null {
-  const producerCwd = cwds[producer.supervisorId];
-  if (!producerCwd) return null;
-  return path.isAbsolute(producer.contractArtifact)
-    ? producer.contractArtifact
-    : path.join(producerCwd, producer.contractArtifact);
-}
-
-function auditIntegrationSkipped(
-  audit: AuditWriter,
-  runId: string,
-  reason: IntegrationSkipReason,
-): void {
-  audit.write({
-    run_id: runId,
-    step: "integration_skipped",
-    agent: "integration",
-    decisions: [`reason=${reason}`],
-    timestamp: new Date().toISOString(),
-  });
-}
-
 async function runIntegrationWithAudit(
   ctx: OrchestratorContextT,
   audit: AuditWriter,
@@ -135,12 +62,12 @@ async function runIntegrationWithAudit(
     run_id: ctx.run_id,
     step: "integration_run",
     agent: "integration",
-    decisions: [
-      `status=${output.status}`,
-      `recommended=${output.recommended_action}`,
-      `contract=${path.basename(contractAbsPath)}`,
-      `producer=${producer.supervisorId}/${producer.taskId}`,
-    ],
+    decisions: integrationRunDecisionFields({
+      status: output.status,
+      recommended: output.recommended_action,
+      contractAbsPath,
+      producer,
+    }),
     timestamp: new Date().toISOString(),
   });
 

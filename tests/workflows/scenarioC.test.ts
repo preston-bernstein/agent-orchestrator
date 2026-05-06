@@ -10,8 +10,8 @@ import { initRunContext } from "../../src/runs/orchestratorContext.js";
 import { atomicWriteJson } from "../../src/runs/state.js";
 import { AuditWriter } from "../../src/audit/jsonl.js";
 import { verifyChain } from "../../src/audit/verify.js";
-import { hashContract } from "../../src/agents/integration.js";
-import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
+import { hashContract } from "../../src/agents/integration/index.js";
+import type { PlannerOutputT } from "../../src/agents/planner/schema.js";
 import { SNAPSHOT } from "./fixtures.js";
 
 /**

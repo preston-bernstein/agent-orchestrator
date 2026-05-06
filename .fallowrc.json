@@ -15,7 +15,10 @@
   "ignoreDependencies": [
     "@mastra/core",
     "@stryker-mutator/typescript-checker",
-    "@stryker-mutator/vitest-runner"
+    "@stryker-mutator/vitest-runner",
+    "@vitest/coverage-istanbul",
+    "fallow",
+    "madge"
   ],
   "usedClassMembers": ["currentPrevHash"],
   "duplicates": {
@@ -25,13 +28,13 @@
     "ignoreImports": true
   },
   "health": {
-    "maxCognitive": 5,
+    "maxCognitive": 12,
     "maxCyclomatic": 10,
     "maxCrap": 120,
     "ignore": [
-      "src/cli/orchestrate.ts",
-      "src/scorecard/aggregate.ts",
-      "src/scorecard/index.ts"
+      "scripts/debt-guard.mjs",
+      "src/cli/orchestrate/index.ts",
+      "src/cli/mockExecuteLane.ts"
     ]
   },
   "rules": {

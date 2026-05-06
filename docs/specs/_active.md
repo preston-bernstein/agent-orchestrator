@@ -1,6 +1,8 @@
 # Active specs
 
-- (none — bootstrap closed; next spec on Inngest absorption pending **37a** outbound verification re-run on prod binary)
+- `2026-05-05-clean-code-enforcement` — quality/architecture enforcement plan; see `plan.md`.
+
+Bootstrap is closed on `main`. Next spec for Inngest absorption still pending **37a** outbound verification re-run on prod binary.
 
 # Done specs
 

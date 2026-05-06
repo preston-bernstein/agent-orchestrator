@@ -1,29 +1,33 @@
 import { AuditWriter } from "../audit/jsonl.js";
 import type { AssembledPrompt } from "../llm/assemblePrompt.js";
 import type { OrchestratorContextT } from "../runs/orchestratorContext.js";
-import type { PlannerOutputT, PlannerTaskT } from "../agents/planner.schema.js";
-import type { RunSupervisorInput } from "../agents/supervisor.js";
+import type { PlannerOutputT, PlannerTaskT } from "../agents/planner/schema.js";
+import type {
+  RunSupervisorInput,
+  RunSupervisorDeps,
+} from "../agents/supervisor/index.js";
 import {
   runSupervisor,
   type RunSupervisorResult,
-} from "../agents/supervisor.js";
+} from "../agents/supervisor/index.js";
 import { getStackProfile } from "../stacks/index.js";
 import type { StackProfile } from "../stacks/types.js";
 import type { GateInvocation, RunQualityDeps } from "../gates/runQuality.js";
+import { compareSupervisorIds } from "./supervisorOrder.js";
 
 /**
  * Supervisor dispatch. Reads `PlannerOutput`, groups tasks by supervisor
  * (`spring` | `react` | `orch`), runs each supervisor in canonical order
- * w/ API-first edge lock (Phase 6).
+ * w/ API-first edge lock.
  *
  * Vault canon: `Build/Playbook.md` §Phase 5–6; `Build/Prompts/supervisor-base.md`;
  * `Multi-Agent Orchestration PoC` §Edge cases #1 (API-first contract gate).
  *
- * Ordering (Phase 6): `spring` → `react` → `orch` → others (alpha). Producer
+ * Ordering: `spring` → `react` → `orch` → others (alpha). Producer
  * always runs before consumer so `gate_contract_published` can flip true
  * before downstream supervisors read it.
  *
- * API-first edge lock (Phase 6, edge 1):
+ * API-first edge lock (edge 1):
  *   - After each supervisor completes, scan its green tasks for
  *     `contract_artifact` set ⇒ flip `gateContractPublished = true`.
  *   - Before each subsequent supervisor, if any of its tasks declares
@@ -37,16 +41,9 @@ import type { GateInvocation, RunQualityDeps } from "../gates/runQuality.js";
  *   - `gate_invocation` — one per `runQuality` call (cmd + exit + tail digest).
  *   - `supervisor_done` — final status + `pending_diff_path` when present.
  *
- * Aggregate adds `blocked_on_contract` (Phase 6) — caller (`runIntegrationStep`)
+ * Aggregate adds `blocked_on_contract` — caller (`runIntegrationStep`)
  * skips integration when blocked.
  *
- * Known gaps:
- *   - No real `git apply` to managed working tree (in-memory patch journal
- *     only). `pending_diff_path` is the merged-string artifact; Phase 7
- *     Approval reads it.
- *   - No cross-supervisor parallelism (still sequential; Inngest absorbs
- *     durability + parallelism per ADR 0003).
- *   - No Inngest durability (tasks 35–46, HITL-gated).
  */
 
 interface SupervisorBranchInput {
@@ -62,11 +59,13 @@ interface SupervisorBranchInput {
   stackOverlays?: Readonly<Record<string, string>>;
 }
 
-interface SupervisorBranchDeps {
+export interface SupervisorBranchDeps {
   subagentCompletion: (prompt: AssembledPrompt) => Promise<unknown>;
   fixSubagentCompletion: (prompt: AssembledPrompt) => Promise<unknown>;
   exec?: RunQualityDeps["exec"];
   estimateTokens?: (kind: "supervisor" | "subagent" | "fix-subagent") => number;
+  wrapSupervisorTaskRun?: RunSupervisorDeps["wrapSupervisorTaskRun"];
+  wrapGateRun?: RunSupervisorDeps["wrapGateRun"];
 }
 
 export interface SupervisorBranchResult {
@@ -83,7 +82,7 @@ export interface SupervisorBranchResult {
     | "budget_exhausted"
     | "blocked_on_contract";
   /**
-   * Phase 6 — set true if any green producer task in this run published a
+   * Set true if any green producer task in this run published a
    * `contract_artifact`. Caller (`runIntegrationStep`) reads this to decide
    * whether to invoke the integration agent.
    */
@@ -108,23 +107,6 @@ export class UnknownSupervisorCwd extends Error {
   }
 }
 
-/**
- * Canonical supervisor order (Phase 6). Producers (API) precede consumers
- * (UI) so `gate_contract_published` can flip true before the consumer
- * supervisor reads it (edge 1 — API-first). Unknown supervisor ids fall
- * through to alpha sort.
- */
-const SUPERVISOR_ORDER: readonly string[] = ["spring", "react", "orch"];
-
-export function compareSupervisorIds(a: string, b: string): number {
-  const ai = SUPERVISOR_ORDER.indexOf(a);
-  const bi = SUPERVISOR_ORDER.indexOf(b);
-  if (ai === -1 && bi === -1) return a.localeCompare(b);
-  if (ai === -1) return 1;
-  if (bi === -1) return -1;
-  return ai - bi;
-}
-
 function groupBySupervisor(
   plan: PlannerOutputT,
 ): { supId: string; tasks: PlannerTaskT[] }[] {
@@ -142,10 +124,10 @@ function groupBySupervisor(
 /**
  * Resolve stack id for a supervisor.
  *
- * Phase 5 hard-coding kept for the deterministic supervisor-branch path:
+ * Hard-coding kept for the deterministic supervisor-branch path:
  *   spring → java-spring, react → ts-react-vite, orch → ts-node.
  *
- * Phase 6: `runExecuteLane` already reads stack-per-repo from `_meta.md`
+ * `runExecuteLane` already reads stack-per-repo from `_meta.md`
  * (vault canon — `loadManagedRepos` returns `{ profile }`). For now this
  * function operates on supervisor id only (works as long as managed repo's
  * declared stack matches the canonical mapping). Promotion to read
@@ -333,6 +315,17 @@ function auditGateInvocations(
   }
 }
 
+function supervisorDepsFromBranch(deps: SupervisorBranchDeps): RunSupervisorDeps {
+  return {
+    subagentCompletion: deps.subagentCompletion,
+    fixSubagentCompletion: deps.fixSubagentCompletion,
+    ...(deps.exec ? { exec: deps.exec } : {}),
+    ...(deps.estimateTokens ? { estimateTokens: deps.estimateTokens } : {}),
+    ...(deps.wrapSupervisorTaskRun ? { wrapSupervisorTaskRun: deps.wrapSupervisorTaskRun } : {}),
+    ...(deps.wrapGateRun ? { wrapGateRun: deps.wrapGateRun } : {}),
+  };
+}
+
 function buildBranchSupervisorInput(
   ctx: OrchestratorContextT,
   tasks: PlannerTaskT[],
@@ -390,12 +383,7 @@ async function runSupervisorGroupNormal(
     st.visited,
   );
 
-  const result = await runSupervisor(supInput, {
-    subagentCompletion: deps.subagentCompletion,
-    fixSubagentCompletion: deps.fixSubagentCompletion,
-    ...(deps.exec ? { exec: deps.exec } : {}),
-    ...(deps.estimateTokens ? { estimateTokens: deps.estimateTokens } : {}),
-  });
+  const result = await runSupervisor(supInput, supervisorDepsFromBranch(deps));
 
   st.visited = [...result.visited_nodes];
 

@@ -11,6 +11,10 @@ Mirrors vault `Examples/docs/specs/2026-05-02-orchestrator-bootstrap/tasks.md`. 
 
 Each task = one PR (or sub-PR per Playbook B1). Agent reads top-down, picks first unblocked, lands it, ticks the box. Human ticks between phases per Playbook **C1–C5** + Fidelity Plan §C.
 
+## Follow-up hardening (2026-05-06)
+
+- [x] Deterministic size guards enforced in ESLint for all `*.ts`/`*.tsx` (tests included): `complexity <= 10`, `max-lines-per-function <= 70`, `max-lines <= 400`, Sonar cognitive `<= 12` in merged lint lane; lint config regression test added at `tests/eslint/deterministicSizeEnforcement.test.ts`.
+
 ## Pre-flight
 
 - [x] 1. Read `requirements` + `design`.
@@ -52,6 +56,12 @@ Vault canon: `Build/Playbook.md` §Phase 6; `Build/Prompts/Stacks/ts-react-vite.
 - [x] 58. **Scenario B** (UI-only, `tests/workflows/scenarioB.test.ts`) — react-only plan, no `consumes_contract`, mock TF + mock exec; asserts react supervisor green w/ stack `ts-react-vite`; `gate_contract_published=false`; integration step skipped w/ reason `no_contract_no_consumer`; audit chain valid; `pending.diff` materialized.
 - [x] 59. **Scenario C** (cross-repo, `tests/workflows/scenarioC.test.ts`) — spring task w/ `contract_artifact` + react task w/ `consumes_contract`; spring runs first → green → publishes contract; react unblocked → green; integration agent runs against fixture `target/openapi.json` ⇒ `compatible` proceed (both first-publish lane and matching-prior-hash lane); 2 `supervisor_spawn` + 2 `supervisor_done` + 0 `supervisor_blocked` + 1 `integration_run`; chain valid.
 - [x] 60. **Phase 6 closeout — `runExecuteLane` + CLI summary.** `runExecuteLane` constructs single `AuditWriter`, threads it through `runSupervisorBranch` + `runIntegrationStep`; result type `RunExecuteLaneResult = SupervisorBranchResult & { integration: IntegrationStepResult }`; `priorContractHash` + `readContract` deps surfaced for tests/Phase 7 reviewer wiring. CLI `BootSummary.execute` extended w/ `integration: { ran, status?, recommended?, reason? }`. Tests: `tests/workflows/executeLane.test.ts` Phase 6 block (2 — Scenario A green w/ `integration_skipped no_contract_no_consumer`; Scenario C lane loads `spring-api` + `react-ui` from `_meta.md` ⇒ `integration_run compatible/proceed` + audit chain valid).
+
+## Phase 7 — reviewer + approval (Playbook §Phase 7)
+
+- [x] 65. Reviewer deterministic + optional Phase-2 hook in execute lane. _`src/reviewer/{schema,diffPaths,deterministic,phase2}.ts` now wired by `src/workflows/executeLane.ts`; deterministic gate runs always, Phase-2 heuristic LLM runs only when `ORCH_REVIEWER_PHASE2=1` **and** `reviewerPhase2Completion` is provided; audit emits `reviewer_deterministic` and optional `reviewer_phase2_llm`._
+- [x] 66. Approval formatter + wait/decision CLI. _`src/approval/formatApprovalArtifacts.ts` writes prompt/payload per supervisor; `src/approval/wait.ts` now owns `writeApprovalDecision()` + `waitForApprovalDecision()` and powers `pnpm run approve` / `pnpm run reject` scripts (writes `approval-decision.json` keyed by `diff_hash`). CLI resume bridge: `pnpm run orchestrate -- --execute --wait-approval [--approval-timeout-ms <n>]` blocks on per-supervisor decisions, exits 0 on all-approved, 1 on rejection, 2 on timeout/pending._
+- [x] 67. Phase-7 tests + pause semantics. _Added `tests/reviewer/phase2.test.ts` and `tests/approval/wait.test.ts`; existing execute-lane tests continue asserting `paused_for_approval` default and `cleared` on `danger_apply` lane. Post-closeout telemetry: scorecard now parses `approval_decision` events (approved/rejected/timeout + latency from `approval_prompt_written`) and renders approval metrics in markdown output._
 
 ## Phase 8 closeout / Phase 9 — scenarios D + E + O7 trigger evaluation (Playbook §Phase 8 + §Phase 9)
 

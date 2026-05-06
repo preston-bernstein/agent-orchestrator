@@ -1,5 +1,5 @@
 import type { ExpectationsSnapshot } from "../../src/config/expectations.js";
-import type { PlannerOutputT } from "../../src/agents/planner.schema.js";
+import type { PlannerOutputT } from "../../src/agents/planner/schema.js";
 
 export const SNAPSHOT: ExpectationsSnapshot = {
   docPath: "docs/playbook-expectations.md",

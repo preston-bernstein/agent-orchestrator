@@ -110,7 +110,7 @@ describe("RedactionFailure", () => {
   });
 });
 
-describe("AuditWriter redaction guard", () => {
+describe("AuditWriter redaction guard — bearer + secrets[]", () => {
   it("scrubs Bearer in record string fields; chain valid; flag NOT created", async () => {
     await mkdir(tmp, { recursive: true });
     const auditPath = path.join(tmp, "audit.jsonl");
@@ -148,7 +148,9 @@ describe("AuditWriter redaction guard", () => {
     expect(raw).not.toMatch(/tf-key-XYZ-1234/);
     expect(raw).toMatch(/\[REDACTED\]/);
   });
+});
 
+describe("AuditWriter redaction guard — post-check + defaults", () => {
   it("refuses + writes redaction_failure.flag when post-check finds an unredacted literal", async () => {
     await mkdir(tmp, { recursive: true });
     const auditPath = path.join(tmp, "audit.jsonl");
@@ -197,7 +199,9 @@ describe("AuditWriter redaction guard", () => {
     expect(raw).toContain("Stryker was here");
     expect(raw).not.toContain("[REDACTED]");
   });
+});
 
+describe("AuditWriter redaction guard — nested walk + scanLeak", () => {
   it("redactValue + scanLeak tolerate null / primitives / arrays in nested payload (jsonl L98–L110)", async () => {
     await mkdir(tmp, { recursive: true });
     const auditPath = path.join(tmp, "audit.jsonl");

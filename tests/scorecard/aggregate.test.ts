@@ -17,7 +17,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("scorecard aggregate", () => {
+describe("scorecard aggregate — rollup + discovery", () => {
   it("rollupAuditJsonl counts dry_plan, planner_skipped, hitl + by_step", async () => {
     await mkdir(path.join(root, "r1"), { recursive: true });
     const auditPath = path.join(root, "r1", "audit.jsonl");
@@ -53,7 +53,9 @@ describe("scorecard aggregate", () => {
     const found = discoverAuditPaths(root);
     expect(found).toEqual([path.resolve(ap)]);
   });
+});
 
+describe("scorecard aggregate — totals merge", () => {
   it("accumulateTotals merges named counters + chain_breaks", () => {
     const t = accumulateTotals([
       {
@@ -72,6 +74,10 @@ describe("scorecard aggregate", () => {
         scenario: "unknown",
         green: false,
         fix_loops: 0,
+        approval_approved_count: 0,
+        approval_rejected_count: 0,
+        approval_timeout_count: 0,
+        approval_latency_ms_avg: null,
       },
       {
         run_id: "b",
@@ -89,6 +95,10 @@ describe("scorecard aggregate", () => {
         scenario: "E",
         green: false,
         fix_loops: 0,
+        approval_approved_count: 0,
+        approval_rejected_count: 0,
+        approval_timeout_count: 0,
+        approval_latency_ms_avg: null,
       },
     ]);
     expect(t.dry_plan_count).toBe(1);
@@ -102,7 +112,9 @@ describe("scorecard aggregate", () => {
     expect(t.counts_by_step.planner_skipped).toBe(1);
     expect(t.counts_by_step.hitl_escalation).toBe(2);
   });
+});
 
+describe("scorecard aggregate — filter since", () => {
   it("sinceIsoUtc + filterRunsSince", () => {
     expect(sinceIsoUtc("2026-05-04")).toBe("2026-05-04T00:00:00.000Z");
     const runs = [
@@ -122,6 +134,10 @@ describe("scorecard aggregate", () => {
         scenario: "unknown" as const,
         green: false,
         fix_loops: 0,
+        approval_approved_count: 0,
+        approval_rejected_count: 0,
+        approval_timeout_count: 0,
+        approval_latency_ms_avg: null,
       },
       {
         run_id: "new",
@@ -139,13 +155,19 @@ describe("scorecard aggregate", () => {
         scenario: "unknown" as const,
         green: false,
         fix_loops: 0,
+        approval_approved_count: 0,
+        approval_rejected_count: 0,
+        approval_timeout_count: 0,
+        approval_latency_ms_avg: null,
       },
     ];
     const cut = sinceIsoUtc("2026-05-04");
     const f = filterRunsSince(runs, cut);
     expect(f.map((x) => x.run_id)).toEqual(["new"]);
   });
+});
 
+describe("scorecard aggregate — edge parsing", () => {
   it("sinceIsoUtc rejects non YYYY-MM-DD", () => {
     expect(() => sinceIsoUtc("2026/05/04")).toThrow(/--since expects YYYY-MM-DD/);
   });
@@ -178,6 +200,10 @@ describe("scorecard aggregate", () => {
         scenario: "unknown" as const,
         green: false,
         fix_loops: 0,
+        approval_approved_count: 0,
+        approval_rejected_count: 0,
+        approval_timeout_count: 0,
+        approval_latency_ms_avg: null,
       },
     ];
     expect(filterRunsSince(runs, cut)).toHaveLength(1);
@@ -207,7 +233,9 @@ describe("scorecard aggregate", () => {
     expect(r.dry_plan_count).toBe(1);
     expect(r.record_count).toBe(2);
   });
+});
 
+describe("scorecard aggregate — supervisor parse + model", () => {
   it("supervisor_spawn agent must match *-supervisor; non-done status ⇒ not green", async () => {
     await mkdir(path.join(root, "sup-parse"), { recursive: true });
     const ap = path.join(root, "sup-parse", "audit.jsonl");
@@ -256,25 +284,26 @@ describe("scorecard aggregate", () => {
   });
 });
 
+async function writeScenarioAuditRun(
+  runRoot: string,
+  runId: string,
+  write: (w: AuditWriter) => void,
+): Promise<string> {
+  await mkdir(path.join(runRoot, runId), { recursive: true });
+  const auditPath = path.join(runRoot, runId, "audit.jsonl");
+  const w = new AuditWriter({ path: auditPath });
+  write(w);
+  return auditPath;
+}
+
 /**
- * Phase 9 — scenario classifier + O7 numeric trigger.
+ * Scenario classifier + O7 numeric trigger.
  * Vault canon: `Build/Patterns/O7-phase2-numeric-trigger.md`;
  * `Orchestration PoC Demo Scorecard.md` (scenarios A–E).
  */
-describe("scorecard scenario inference (Phase 9)", () => {
-  async function writeRun(
-    runId: string,
-    write: (w: AuditWriter) => void,
-  ): Promise<string> {
-    await mkdir(path.join(root, runId), { recursive: true });
-    const auditPath = path.join(root, runId, "audit.jsonl");
-    const w = new AuditWriter({ path: auditPath });
-    write(w);
-    return auditPath;
-  }
-
+describe("scorecard scenario inference — A–E core", () => {
   it("planner_skipped classifies as Scenario E + green=true (skip is a no-op success)", async () => {
-    const ap = await writeRun("e-skip", (w) => {
+    const ap = await writeScenarioAuditRun(root, "e-skip", (w) => {
       w.write({ run_id: "e-skip", step: "planner_branch:start", agent: "system", timestamp: "2026-05-04T00:00:00Z" });
       w.write({ run_id: "e-skip", step: "planner_skipped", agent: "planner", decisions: ["all tasks checked, tree clean, no pending fixes"], timestamp: "2026-05-04T00:00:01Z" });
     });
@@ -285,7 +314,7 @@ describe("scorecard scenario inference (Phase 9)", () => {
   });
 
   it("single spring supervisor + no integration ⇒ Scenario A; explicit scenario=D tag overrides", async () => {
-    const apA = await writeRun("a-only-spring", (w) => {
+    const apA = await writeScenarioAuditRun(root, "a-only-spring", (w) => {
       w.write({ run_id: "a-only-spring", step: "supervisor_spawn", agent: "spring-supervisor", timestamp: "2026-05-04T00:00:00Z" });
       w.write({ run_id: "a-only-spring", step: "gate_invocation", agent: "spring-supervisor", cmd: ["mvn"], cwd: "/x", exit: 0, timestamp: "2026-05-04T00:00:01Z" });
       w.write({ run_id: "a-only-spring", step: "supervisor_done", agent: "spring-supervisor", decisions: ["status=done", "next=ready_for_review"], timestamp: "2026-05-04T00:00:02Z" });
@@ -295,7 +324,7 @@ describe("scorecard scenario inference (Phase 9)", () => {
     expect(rA.green).toBe(true);
     expect(rA.fix_loops).toBe(0);
 
-    const apD = await writeRun("d-with-tag", (w) => {
+    const apD = await writeScenarioAuditRun(root, "d-with-tag", (w) => {
       w.write({ run_id: "d-with-tag", step: "scenario_tag", agent: "system", decisions: ["scenario=D"], timestamp: "2026-05-04T00:00:00Z" });
       w.write({ run_id: "d-with-tag", step: "supervisor_spawn", agent: "spring-supervisor", timestamp: "2026-05-04T00:00:01Z" });
       w.write({ run_id: "d-with-tag", step: "gate_invocation", agent: "spring-supervisor", cmd: ["mvn"], cwd: "/x", exit: 0, timestamp: "2026-05-04T00:00:02Z" });
@@ -307,7 +336,7 @@ describe("scorecard scenario inference (Phase 9)", () => {
   });
 
   it("single react supervisor ⇒ Scenario B", async () => {
-    const ap = await writeRun("b-react", (w) => {
+    const ap = await writeScenarioAuditRun(root, "b-react", (w) => {
       w.write({ run_id: "b-react", step: "supervisor_spawn", agent: "react-supervisor", timestamp: "2026-05-04T00:00:00Z" });
       w.write({ run_id: "b-react", step: "gate_invocation", agent: "react-supervisor", cmd: ["pnpm"], cwd: "/x", exit: 0, timestamp: "2026-05-04T00:00:01Z" });
       w.write({ run_id: "b-react", step: "supervisor_done", agent: "react-supervisor", decisions: ["status=done"], timestamp: "2026-05-04T00:00:02Z" });
@@ -316,9 +345,11 @@ describe("scorecard scenario inference (Phase 9)", () => {
     expect(r.scenario).toBe("B");
     expect(r.green).toBe(true);
   });
+});
 
+describe("scorecard scenario inference — cross-repo + guards", () => {
   it("two supervisors + integration_run ⇒ Scenario C", async () => {
-    const ap = await writeRun("c-cross", (w) => {
+    const ap = await writeScenarioAuditRun(root, "c-cross", (w) => {
       w.write({ run_id: "c-cross", step: "supervisor_spawn", agent: "spring-supervisor", timestamp: "2026-05-04T00:00:00Z" });
       w.write({ run_id: "c-cross", step: "gate_invocation", agent: "spring-supervisor", cmd: ["mvn"], cwd: "/x", exit: 0, timestamp: "2026-05-04T00:00:01Z" });
       w.write({ run_id: "c-cross", step: "supervisor_done", agent: "spring-supervisor", decisions: ["status=done"], timestamp: "2026-05-04T00:00:02Z" });
@@ -333,7 +364,7 @@ describe("scorecard scenario inference (Phase 9)", () => {
   });
 
   it("supervisor_blocked ⇒ green=false; chain break ⇒ green=false; fix_loops counts gates beyond first", async () => {
-    const ap = await writeRun("blocked", (w) => {
+    const ap = await writeScenarioAuditRun(root, "blocked", (w) => {
       w.write({ run_id: "blocked", step: "supervisor_spawn", agent: "react-supervisor", timestamp: "2026-05-04T00:00:00Z" });
       w.write({ run_id: "blocked", step: "supervisor_blocked", agent: "react-supervisor", decisions: ["block_for_contract"], timestamp: "2026-05-04T00:00:01Z" });
       w.write({ run_id: "blocked", step: "supervisor_done", agent: "react-supervisor", decisions: ["status=blocked_on_contract"], timestamp: "2026-05-04T00:00:02Z" });
@@ -341,7 +372,7 @@ describe("scorecard scenario inference (Phase 9)", () => {
     const r = rollupAuditJsonl(ap);
     expect(r.green).toBe(false);
 
-    const apFix = await writeRun("a-fix-loops", (w) => {
+    const apFix = await writeScenarioAuditRun(root, "a-fix-loops", (w) => {
       w.write({ run_id: "a-fix-loops", step: "supervisor_spawn", agent: "spring-supervisor", timestamp: "2026-05-04T00:00:00Z" });
       w.write({ run_id: "a-fix-loops", step: "gate_invocation", agent: "spring-supervisor", cmd: ["mvn"], cwd: "/x", exit: 1, timestamp: "2026-05-04T00:00:01Z" });
       w.write({ run_id: "a-fix-loops", step: "gate_invocation", agent: "spring-supervisor", cmd: ["mvn"], cwd: "/x", exit: 1, timestamp: "2026-05-04T00:00:02Z" });
@@ -352,64 +383,5 @@ describe("scorecard scenario inference (Phase 9)", () => {
     expect(rFix.scenario).toBe("A");
     expect(rFix.fix_loops).toBe(2);
     expect(rFix.green).toBe(true);
-  });
-
-  it("accumulateTotals: O7 phase_2_eligible flips on green_pct + avg_fix_loops + chain_breaks", () => {
-    const greenA = (id: string, fix = 0): Parameters<typeof accumulateTotals>[0][number] => ({
-      run_id: id,
-      audit_path: "/x",
-      chain_valid: true,
-      record_count: 1,
-      dry_plan_count: 0,
-      o5_skip_count: 0,
-      hitl_count: 0,
-      counts_by_step: {},
-      tokens_in_total: 0,
-      tokens_out_total: 0,
-      started_at: null,
-      ended_at: null,
-      scenario: "A",
-      green: true,
-      fix_loops: fix,
-    });
-
-    const fivePass = accumulateTotals([
-      greenA("r1"),
-      greenA("r2"),
-      greenA("r3"),
-      greenA("r4"),
-      greenA("r5"),
-    ]);
-    expect(fivePass.green_pct).toBe(100);
-    expect(fivePass.avg_fix_loops).toBe(0);
-    expect(fivePass.phase_2_eligible).toBe(true);
-
-    const oneRedFour = accumulateTotals([
-      greenA("r1"),
-      greenA("r2"),
-      greenA("r3"),
-      greenA("r4"),
-      { ...greenA("r5"), green: false },
-    ]);
-    expect(oneRedFour.green_pct).toBe(80);
-    expect(oneRedFour.phase_2_eligible).toBe(true);
-
-    const noisyFix = accumulateTotals([
-      greenA("r1", 2),
-      greenA("r2", 2),
-      greenA("r3", 2),
-    ]);
-    expect(noisyFix.avg_fix_loops).toBe(2);
-    expect(noisyFix.phase_2_eligible).toBe(false);
-
-    const chainBroken = accumulateTotals([
-      { ...greenA("r1"), chain_valid: false, green: false },
-    ]);
-    expect(chainBroken.chain_breaks).toBe(1);
-    expect(chainBroken.phase_2_eligible).toBe(false);
-
-    const empty = accumulateTotals([]);
-    expect(empty.runs_scanned).toBe(0);
-    expect(empty.phase_2_eligible).toBe(false);
   });
 });

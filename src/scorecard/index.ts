@@ -1,7 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadBootConfig } from "../config/env.js";
 import {
   buildScorecardModel,
   discoverAuditPaths,
@@ -11,56 +10,10 @@ import {
   type ScorecardModel,
 } from "./aggregate.js";
 import { renderScorecardJson, renderScorecardMarkdown } from "./format.js";
+import { parseScorecardArgv, type CliFormat } from "./argv.js";
 
-export type CliFormat = "default" | "json";
-
-export function parseScorecardArgv(argv: readonly string[]): {
-  format: CliFormat;
-  since?: string;
-  runIds?: string[];
-  runsDir: string;
-} {
-  let format: CliFormat = "default";
-  let since: string | undefined;
-  let runIds: string[] | undefined;
-  const cfg = loadBootConfig();
-  let runsDir = path.resolve(cfg.RUNS_DIR);
-
-  for (let i = 2; i < argv.length; i++) {
-    const a = argv[i] as string;
-    if (a === "--format") {
-      const v = argv[++i];
-      if (v !== "json") {
-        throw new Error("--format accepts only json (stdout only)");
-      }
-      format = "json";
-      continue;
-    }
-    if (a === "--since") {
-      const v = argv[++i];
-      if (!v) throw new Error("--since requires YYYY-MM-DD");
-      since = v;
-      continue;
-    }
-    if (a === "--runs") {
-      const v = argv[++i];
-      if (!v) throw new Error("--runs requires comma-separated ids");
-      runIds = v.split(",").map((s) => s.trim()).filter(Boolean);
-      continue;
-    }
-    if (a === "--runs-dir") {
-      const v = argv[++i];
-      if (!v) throw new Error("--runs-dir requires a path");
-      runsDir = path.resolve(v);
-      continue;
-    }
-    if (a === "--help" || a === "-h") {
-      throw new Error("help");
-    }
-  }
-
-  return { format, since, runIds, runsDir };
-}
+export type { CliFormat };
+export { parseScorecardArgv } from "./argv.js";
 
 function pathsForRunIds(runsDir: string, ids: string[]): string[] {
   return ids.map((id) => path.join(runsDir, id, "audit.jsonl"));

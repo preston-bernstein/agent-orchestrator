@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runPlannerBranch } from "../../src/workflows/plannerBranch.js";
-import { mockPlannerCompletion } from "../../src/agents/planner.js";
+import { mockPlannerCompletion } from "../../src/agents/planner/index.js";
 import { initRunContext } from "../../src/runs/orchestratorContext.js";
 import { atomicWriteJson } from "../../src/runs/state.js";
 import { verifyChain } from "../../src/audit/verify.js";
@@ -18,7 +18,7 @@ import { SNAPSHOT } from "./fixtures.js";
  *
  * Scenario E shape:
  *   - All tasks pre-checked, working tree clean, no prior fix-loop.
- *   - `runPlannerBranch` consults `plannerDryRun` ⇒ returns `skip:true`.
+ *   - `runPlannerBranch` consults `dryRun` helper ⇒ returns `skip:true`.
  *   - Outcome: `skipped` — `planner_skipped` audit event, planner LLM
  *     completion never invoked, **zero** `supervisor_spawn` events,
  *     **zero** `dry_plan` / `execution_started` events (workflow short-circuits

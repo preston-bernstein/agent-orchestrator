@@ -18,7 +18,7 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: [
         "src/**/*.d.ts",
-        "src/cli/orchestrate.ts",
+        "src/cli/orchestrate/index.ts",
         "src/inngest/**",
         "src/llm/toonContext.ts",
         "src/audit/verify.ts",

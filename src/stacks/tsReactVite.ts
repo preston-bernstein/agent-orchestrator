@@ -5,16 +5,15 @@ import type { StackProfile } from "./types.js";
  * §StackProfile (TypeScript). Bump in lockstep w/ that file (A3 canon
  * pinned via `docs/playbook-expectations.md`).
  *
- * Phase 6: second stack (React UI lane). Scenario B (UI-only) + Scenario C
- * (cross-repo) integration tests exercise this profile w/ mock TF + mock
- * gate exec.
+ * React UI stack profile. Scenario B (UI-only) + Scenario C (cross-repo)
+ * integration tests exercise this profile w/ mock TF + mock gate exec.
  *
  * Note on `snapshotForbiddenFlags`: vault overlay names `vitest -u` /
  * `--update-snapshots` / `--ci=false`. We intentionally OMIT the bare `-u`
  * substring — `String.includes('-u')` would false-positive on `--user`,
  * `--update`, etc. (`enforceSnapshotFlagBan` is plain substring match,
  * matches existing javaSpringProfile precedent w/ unambiguous tokens only).
- * Reviewer regex enforcement (Phase 7) gets the tighter `\b-u\b` check.
+ * Reviewer regex enforcement gets the tighter `\b-u\b` check.
  */
 export const tsReactViteProfile: StackProfile = {
   id: "ts-react-vite",

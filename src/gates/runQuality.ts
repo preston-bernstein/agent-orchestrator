@@ -1,6 +1,13 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { StackProfile } from "../stacks/types.js";
+import type { GateInvocation, GateKind, RunQualityDeps } from "./types.js";
+
+export type {
+  GateExecResult,
+  GateInvocation,
+  GateKind,
+  RunQualityDeps,
+} from "./types.js";
+import { defaultExec, mockExec, selectCmd } from "./runQualityExec.js";
 
 /**
  * `runQuality` — quality-gate dispatch by `StackProfile`. Vault canon:
@@ -21,19 +28,6 @@ import type { StackProfile } from "../stacks/types.js";
  * land at Phase 5+ E2E w/ a real spring-api repo).
  */
 
-const execFileAsync = promisify(execFile);
-
-export type GateKind = "preflight" | "fast" | "heavy";
-
-interface GateExecResult {
-  exit: number;
-  stdout: string;
-  stderr: string;
-  oom?: boolean;
-  timed_out?: boolean;
-  duration_ms?: number;
-}
-
 interface RunQualityInput {
   profile: StackProfile;
   cwd: string;
@@ -46,119 +40,12 @@ interface RunQualityInput {
   env?: Readonly<Record<string, string>>;
 }
 
-export interface RunQualityDeps {
-  /**
-   * Injection seam: subprocess runner. Tests pass a fake; real lane
-   * uses `defaultExec` (built on `node:child_process.execFile`).
-   */
-  exec?: (
-    cmd: readonly string[],
-    opts: { cwd: string; timeoutMs?: number; env?: Readonly<Record<string, string>> },
-  ) => Promise<GateExecResult>;
-}
-
-export interface GateInvocation {
-  /** Argv (program + args). Stack profile decides; `runQuality` just dispatches. */
-  cmd: readonly string[];
-  cwd: string;
-  exit: number;
-  oom: boolean;
-  timed_out: boolean;
-  duration_ms: number;
-  /** Last `logTailLines` of merged stdout+stderr (edge 3). */
-  log_tail: string;
-  kind: GateKind;
-  /** Mirror of profile id for audit ergonomics. */
-  stack: string;
-}
-
 const DEFAULT_LOG_TAIL_LINES = 200;
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
-
-function selectCmd(profile: StackProfile, kind: GateKind): readonly string[] {
-  switch (kind) {
-    case "preflight":
-      return profile.preflightCmd;
-    case "fast":
-      return profile.qualityFastCmd;
-    case "heavy":
-      return profile.qualityHeavyCmd;
-    default: {
-      const exhaustive: never = kind;
-      throw new Error(`unreachable gate kind: ${String(exhaustive)}`);
-    }
-  }
-}
-
 function tailLines(s: string, n: number): string {
   if (!s) return "";
   const lines = s.split(/\r?\n/);
   if (lines.length <= n) return s;
   return lines.slice(lines.length - n).join("\n");
-}
-
-type ExecErr = Error & {
-  code?: number;
-  signal?: string;
-  stdout?: string;
-  stderr?: string;
-  killed?: boolean;
-};
-
-function gateExecSuccess(stdout: string, stderr: string, startMs: number): GateExecResult {
-  return {
-    exit: 0,
-    stdout,
-    stderr,
-    oom: /OutOfMemoryError/.test(stderr),
-    duration_ms: Date.now() - startMs,
-  };
-}
-
-function gateExecFromCaught(err: ExecErr, startMs: number): GateExecResult {
-  const stderr = err.stderr ?? "";
-  return {
-    exit: typeof err.code === "number" ? err.code : 1,
-    stdout: err.stdout ?? "",
-    stderr,
-    oom: /OutOfMemoryError/.test(stderr),
-    timed_out: err.killed === true || err.signal === "SIGTERM",
-    duration_ms: Date.now() - startMs,
-  };
-}
-
-function mergeExecEnv(env?: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
-  return env ? { ...process.env, ...env } : process.env;
-}
-
-/**
- * Default exec — `child_process.execFile` w/ timeout + OOM substring scan.
- * Production lane only; tests inject `deps.exec`.
- */
-async function defaultExec(
-  cmd: readonly string[],
-  opts: {
-    cwd: string;
-    timeoutMs?: number;
-    env?: Readonly<Record<string, string>>;
-  },
-): Promise<GateExecResult> {
-  if (cmd.length === 0) {
-    return { exit: 127, stdout: "", stderr: "empty cmd" };
-  }
-  const [program, ...args] = cmd as [string, ...string[]];
-  const startMs = Date.now();
-  try {
-    const { stdout, stderr } = await execFileAsync(program, args, {
-      cwd: opts.cwd,
-      timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      env: mergeExecEnv(opts.env),
-      maxBuffer: 50 * 1024 * 1024,
-    });
-    return gateExecSuccess(stdout, stderr, startMs);
-  } catch (e) {
-    return gateExecFromCaught(e as ExecErr, startMs);
-  }
 }
 
 export async function runQuality(
@@ -192,25 +79,4 @@ export async function runQuality(
   };
 }
 
-/**
- * Mock exec for unit + Scenario A tests. Caller passes `exit` + optional
- * `stderr` body (e.g. inject `OutOfMemoryError` for edge 19 test). Returns
- * a deterministic `GateExecResult` shape.
- */
-export function mockExec(opts: {
-  exit: number;
-  stdout?: string;
-  stderr?: string;
-  oom?: boolean;
-  timed_out?: boolean;
-  duration_ms?: number;
-}): RunQualityDeps["exec"] {
-  return async () => ({
-    exit: opts.exit,
-    stdout: opts.stdout ?? "",
-    stderr: opts.stderr ?? "",
-    ...(opts.oom !== undefined ? { oom: opts.oom } : {}),
-    ...(opts.timed_out !== undefined ? { timed_out: opts.timed_out } : {}),
-    ...(opts.duration_ms !== undefined ? { duration_ms: opts.duration_ms } : {}),
-  });
-}
+export { mockExec };

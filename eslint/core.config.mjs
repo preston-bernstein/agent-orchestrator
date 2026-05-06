@@ -38,19 +38,24 @@ export default [
       "no-empty": ["error", { allowEmptyCatch: true }],
       "no-useless-escape": "off",
       "no-useless-assignment": "off",
-      complexity: ["error", { max: 35 }],
+      complexity: ["error", { max: 10 }],
+      "max-lines": ["error", { max: 400, skipBlankLines: true, skipComments: true }],
       "max-lines-per-function": [
         "error",
-        { max: 320, skipBlankLines: true, skipComments: true },
+        { max: 70, skipBlankLines: true, skipComments: true },
       ],
+    },
+  },
+  {
+    files: ["src/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "error",
     },
   },
   {
     files: ["tests/**/*.ts", "**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-unused-expressions": "off",
-      "max-lines-per-function": "off",
-      complexity: "off",
     },
   },
   // NUL sentinels in regex replace — intentional (see caveman mask/unmask).

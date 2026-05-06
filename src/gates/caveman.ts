@@ -1,8 +1,8 @@
 import {
   RedactionFailure,
-  findLeak,
-  redactString,
 } from "../audit/jsonl.js";
+import { compress } from "./cavemanCompress.js";
+import { redactOrFail } from "./cavemanRedaction.js";
 
 /**
  * Deterministic caveman compressor (no LLM). Runs before every Agent prompt
@@ -34,127 +34,6 @@ interface CavemanResult {
 const DEFAULT_MAX_TOKENS = 800;
 const CHARS_PER_TOKEN = 4;
 
-const FILLER_PATTERNS: readonly RegExp[] = [
-  /\bplease\b/gi,
-  /\bkindly\b/gi,
-  /\bcould you\b/gi,
-  /\bi would like\b/gi,
-  /\bif possible\b/gi,
-  /\bas we discussed\b/gi,
-  /\bto be clear\b/gi,
-  /\b(actually|basically|essentially)\b/gi,
-];
-
-const STACK_LINE_RE =
-  /\b(?:Error|Exception)\b|\s+at\s+[\w$./<>]+\s*[(:]/;
-
-const INLINE_PROTECT_RE = new RegExp(
-  [
-    "`[^`\\n]+`",
-    "https?:\\/\\/\\S+",
-    "\"[^\"\\n]*\"",
-    "'[^'\\n]*'",
-    "\\/[A-Za-z0-9_./\\-]+",
-    "\\b[A-Za-z0-9_\\-]+\\.[A-Za-z]{1,8}\\b",
-  ].join("|"),
-  "g",
-);
-
-/**
- * Replace inline-protected tokens w/ placeholders, run transform, restore.
- * Placeholder format: `\u0000P<i>\u0000` (NUL-bracketed; cannot appear in
- * source text per JSON encoding).
- */
-function withInlineProtection(
-  line: string,
-  transform: (free: string) => string,
-): string {
-  const protectedTokens: string[] = [];
-  const masked = line.replace(INLINE_PROTECT_RE, (match) => {
-    protectedTokens.push(match);
-    return `\u0000P${protectedTokens.length - 1}\u0000`;
-  });
-  const transformed = transform(masked);
-  return transformed.replace(/\u0000P(\d+)\u0000/g, (_m, idx: string) => {
-    const i = Number(idx);
-    return protectedTokens[i] ?? "";
-  });
-}
-
-function stripFillers(s: string): string {
-  let out = s;
-  for (const re of FILLER_PATTERNS) {
-    out = out.replace(re, "");
-  }
-  return out;
-}
-
-function classifyCompressLine(
-  line: string,
-  inFence: boolean,
-): { entry: { line: string; isProtected: boolean }; nextInFence: boolean } {
-  const fenceToggle = /^\s*```/.test(line);
-  if (fenceToggle) {
-    return { entry: { line, isProtected: true }, nextInFence: !inFence };
-  }
-  if (inFence || STACK_LINE_RE.test(line)) {
-    return { entry: { line, isProtected: true }, nextInFence: inFence };
-  }
-  const transformed = withInlineProtection(line, (free) => stripFillers(free));
-  const normalized = transformed.replace(/[ \t]+/g, " ").replace(/^ | $/g, "");
-  return { entry: { line: normalized, isProtected: false }, nextInFence: inFence };
-}
-
-function nextBlankRunState(
-  isProtected: boolean,
-  line: string,
-  blankRun: number,
-): { emit: boolean; blankRun: number } {
-  if (!isProtected && line === "") {
-    const next = blankRun + 1;
-    return { emit: next <= 1, blankRun: next };
-  }
-  return { emit: true, blankRun: 0 };
-}
-
-function collapseCompressedBlankRuns(
-  processed: { line: string; isProtected: boolean }[],
-): string[] {
-  const out: string[] = [];
-  let blankRun = 0;
-  for (const { line, isProtected } of processed) {
-    const step = nextBlankRunState(isProtected, line, blankRun);
-    blankRun = step.blankRun;
-    if (!step.emit) continue;
-    out.push(line);
-  }
-  return out;
-}
-
-/**
- * Walk lines; classify:
- *   - inside triple-backtick fence → verbatim
- *   - stack-trace line → verbatim
- *   - else → inline-protect, strip fillers, collapse intra-line whitespace
- *
- * Trailing whitespace + run-of-blank-line collapse runs only across **free**
- * lines (preserves protected indentation like `    at Foo.bar (...)`).
- */
-function compress(text: string): string {
-  const lines = text.split("\n");
-  const processed: { line: string; isProtected: boolean }[] = [];
-  let inFence = false;
-  for (const line of lines) {
-    const { entry, nextInFence } = classifyCompressLine(line, inFence);
-    processed.push(entry);
-    inFence = nextInFence;
-  }
-
-  const out = collapseCompressedBlankRuns(processed);
-  let joined = out.join("\n").replace(/\n{3,}/g, "\n\n");
-  joined = joined.replace(/^\n+/, "").replace(/\n+$/, "");
-  return joined;
-}
 
 function applyLengthCap(
   text: string,
@@ -168,29 +47,7 @@ function applyLengthCap(
   return { text: head + marker, truncated: true };
 }
 
-/**
- * Run secret scrubbing twice: first pass replaces literal + pattern matches,
- * post-pass scans for survivors. Any survivor → throw `RedactionFailure`.
- * Caveman gate has no flag file (audit writer owns that surface) — flagPath
- * sentinel string identifies the gate as origin.
- */
-function redactOrFail(text: string, secrets: readonly string[]): {
-  text: string;
-  passes: number;
-} {
-  let passes = 0;
-  let cur = text;
-  for (let i = 0; i < 2; i++) {
-    const next = redactString(cur, secrets);
-    if (next !== cur) passes++;
-    cur = next;
-  }
-  const leak = findLeak(cur, secrets);
-  if (leak) {
-    throw new RedactionFailure(leak, "<caveman-gate>");
-  }
-  return { text: cur, passes };
-}
+export { RedactionFailure };
 
 export function caveman(input: CavemanInput): CavemanResult {
   const { text, maxTokens = DEFAULT_MAX_TOKENS, secrets = [], auditRef } = input;

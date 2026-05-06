@@ -1,30 +1,35 @@
+import { CliArgError } from "../errors/CliArgError.js";
+
+export { CliArgError };
+
 /**
  * Minimal CLI arg parser for `pnpm run orchestrate`. Recognized flags:
  *
- *   --spec <path>     spec file or directory (Phase 4 fixture mode = .md file)
+ *   --spec <path>     spec file or directory (fixture mode = .md file)
  *   --dry-plan        plan-only; no supervisor spawn (A4 default)
- *   --execute         risky lane: route plan → supervisors (Phase 5+)
- *   --reason <text>   required with --danger-apply (Phase 7 / C1)
+ *   --execute         route plan → supervisors
+ *   --reason <text>   required with --danger-apply (C1)
  *   --danger-apply    irreversible lane; must pair with --execute + --reason
+ *   --follow          after send, poll run status until terminal
+ *   --wait-approval    when paused, poll approval decisions and continue
+ *   --approval-timeout-ms <n> timeout window for wait-approval polling
+ *   --gates-verify     send orch/gates.verify (managed-repo quality gates only, no planner/LLM)
  *
  * Mutually exclusive flags throw `CliArgError`. Unknown flags are echoed
  * back in `unknown[]` so callers may decide policy.
  */
 
-interface ParsedArgs {
+export interface ParsedArgs {
   spec?: string;
   dryPlan: boolean;
   execute: boolean;
+  gatesVerify: boolean;
   dangerApply: boolean;
+  follow: boolean;
+  waitApproval: boolean;
+  approvalTimeoutMs?: number;
   reason?: string;
   unknown: string[];
-}
-
-export class CliArgError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CliArgError";
-  }
 }
 
 function takeFlagValue(
@@ -40,7 +45,14 @@ function takeFlagValue(
   return { value: v, next: it.next() };
 }
 
-function validateMutex(out: ParsedArgs): void {
+function validateGatesMutex(out: ParsedArgs): void {
+  if (!out.gatesVerify) return;
+  if (out.execute) throw new CliArgError("--gates-verify conflicts with --execute");
+  if (out.dryPlan) throw new CliArgError("--gates-verify conflicts with --dry-plan / ORCH_DRY_PLAN");
+  if (out.waitApproval) throw new CliArgError("--gates-verify does not pair with --wait-approval");
+}
+
+function validateDryExecuteMutex(out: ParsedArgs): void {
   if (out.dryPlan && out.execute) {
     throw new CliArgError("--dry-plan and --execute are mutually exclusive");
   }
@@ -49,12 +61,31 @@ function validateMutex(out: ParsedArgs): void {
   }
 }
 
+function validateMutex(out: ParsedArgs): void {
+  validateGatesMutex(out);
+  validateDryExecuteMutex(out);
+}
+
 const BOOL_CLI_FLAGS: Readonly<
-  Record<string, keyof Pick<ParsedArgs, "dryPlan" | "execute" | "dangerApply">>
+  Record<
+    string,
+    keyof Pick<
+      ParsedArgs,
+      | "dryPlan"
+      | "execute"
+      | "gatesVerify"
+      | "dangerApply"
+      | "follow"
+      | "waitApproval"
+    >
+  >
 > = {
   "--dry-plan": "dryPlan",
   "--execute": "execute",
+  "--gates-verify": "gatesVerify",
   "--danger-apply": "dangerApply",
+  "--follow": "follow",
+  "--wait-approval": "waitApproval",
 };
 
 function consumeNextArg(
@@ -77,6 +108,15 @@ function consumeNextArg(
     out.reason = tv.value;
     return tv.next;
   }
+  if (a === "--approval-timeout-ms") {
+    const tv = takeFlagValue(it, "--approval-timeout-ms", "string");
+    const n = Number(tv.value);
+    if (!Number.isFinite(n) || n <= 0) {
+      throw new CliArgError("--approval-timeout-ms must be a positive number");
+    }
+    out.approvalTimeoutMs = Math.floor(n);
+    return tv.next;
+  }
   if (a !== undefined) out.unknown.push(a);
   return it.next();
 }
@@ -85,7 +125,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const out: ParsedArgs = {
     dryPlan: false,
     execute: false,
+    gatesVerify: false,
     dangerApply: false,
+    follow: false,
+    waitApproval: false,
     unknown: [],
   };
   const it = argv[Symbol.iterator]();

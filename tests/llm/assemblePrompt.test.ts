@@ -221,7 +221,7 @@ describe("assemblePrompt — env cap edge cases (kill mutants L124–126)", () =
   });
 });
 
-describe("assemblePrompt — section composition (kill mutants L135–148)", () => {
+describe("assemblePrompt — section composition: caveman + base (L135–138)", () => {
   it("sections array starts empty (kills L135 ArrayDeclaration sentinel)", () => {
     const out = assemblePrompt({
       caveman: "C",
@@ -259,7 +259,9 @@ describe("assemblePrompt — section composition (kill mutants L135–148)", () 
     });
     expect(out.sections[0]).toBe("CAVE");
   });
+});
 
+describe("assemblePrompt — optional overlays + trimming (L138–154)", () => {
   it("toonSections=undefined ⇒ no throw, no toon section (kills L138 conditional-true)", () => {
     const out = assemblePrompt({
       caveman: "C",
@@ -308,7 +310,9 @@ describe("assemblePrompt — section composition (kill mutants L135–148)", () 
     });
     expect(out.sections).toContain("STACK");
   });
+});
 
+describe("assemblePrompt — base trim + token boundary (L144–161)", () => {
   it("toonSections: [] does not emit TOON blocks (kills L138 `length > 0`)", () => {
     const out = assemblePrompt({
       caveman: "C",
@@ -367,7 +371,9 @@ describe("assemblePrompt — section composition (kill mutants L135–148)", () 
       }),
     ).toThrow(PromptBudgetError);
   });
+});
 
+describe("assemblePrompt — outputSchema + xml blobs (L148–155)", () => {
   it("outputSchema whitespace-only is omitted (kills L154–155 trim guards)", () => {
     const out = assemblePrompt({
       caveman: "C",

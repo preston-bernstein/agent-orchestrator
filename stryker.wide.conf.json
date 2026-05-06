@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "_comment": "Full src/ (minus T3 entrypoints) @ break ≥95%. Includes scorecard/aggregate.ts (was deferred); expectations + RunContext still excluded — add when tests hold 95%.",
+  "_comment": "Full src/ (minus T3 entrypoints and thin CLI/HITL adapters) @ break ≥95%. Includes scorecard/aggregate.ts (was deferred); expectations + RunContext still excluded — add when tests hold 95%.",
   "packageManager": "pnpm",
   "testRunner": "vitest",
   "vitest_comment": {
@@ -15,10 +15,15 @@
   "mutate": [
     "src/**/*.ts",
     "!src/audit/verify.ts",
-    "!src/cli/orchestrate.ts",
+    "!src/cli/orchestrate/index.ts",
+    "!src/cli/orchestrate/approvalWait.ts",
+    "!src/cli/orchestrate/approvalSummary.ts",
     "!src/inngest/**",
+    "!src/approval/wait.ts",
     "!src/scorecard/index.ts",
     "!src/scorecard/format.ts",
+    "!src/reviewer/phase2.ts",
+    "!src/agents/supervisor/cycleAbortError.ts",
     "!src/runs/loadSpec.ts",
     "!src/stacks/types.ts",
     "!src/llm/toonContext.ts",

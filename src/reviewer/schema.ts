@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Vault `Build/Prompts/reviewer.md` §Output (O1). Phase 7 MVP = deterministic slice only. */
+/** Vault `Build/Prompts/reviewer.md` §Output (O1). Deterministic slice only. */
 const ReviewerFindingSeverity = z.enum(["error", "warning", "info"]);
 
 const ReviewerFinding = z.object({
